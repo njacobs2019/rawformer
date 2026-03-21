@@ -1,0 +1,158 @@
+[project]
+name = "rawformer"
+version = "0.1.0"
+description = "Transformers from scratch"
+readme = "README.md"
+
+authors = [
+    { name = "Nicholas Jacobs", email = "59352054+njacobs2019@users.noreply.github.com" }
+]
+
+requires-python = ">=3.14,<3.15"
+
+dependencies = [
+    "beartype>=0.22.9",
+    "jaxtyping>=0.3.9",
+    "numpy>=2.4.3",
+    "opencv-python-headless>=4.13.0.92",
+    "scipy>=1.17.1",
+    "tqdm>=4.67.3",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+    "pre-commit>=4.5.1",
+    "pylint>=4.0.5",
+    "ruff>=0.15.7",
+]
+
+[project.optional-dependencies]
+cpu = ["torch~=2.10.0"]
+cuda = ["torch~=2.10.0"]
+
+[tool.uv]
+conflicts = [[
+{extra = "cpu"},
+{extra = "cuda"},
+],]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu",   extra = "cpu" },
+  { index = "pytorch-cu129", extra = "cuda" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu129"
+url = "https://download.pytorch.org/whl/cu129"
+explicit = true
+
+[project.scripts]
+rawformer = "rawformer.cli.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.10.0,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = "src"
+module-name = "rawformer"
+
+[project.urls]
+Homepage = "https://github.com/njacobs2019/rawformer"
+Issues = "https://github.com/njacobs2019/rawformer/issues"
+
+[tool.pylint.'MESSAGES CONTROL']
+disable = """
+duplicate-code,
+fixme,
+forgotten-debug-statement,
+import-outside-toplevel,
+invalid-name,
+line-too-long,
+missing-class-docstring,
+missing-function-docstring,
+missing-module-docstring,
+redefined-outer-name,
+relative-beyond-top-level,
+too-few-public-methods,
+too-many-arguments,
+too-many-instance-attributes,
+too-many-locals,
+too-many-positional-arguments,
+too-many-statements,
+unused-argument,
+"""
+
+[tool.pylint.'TYPECHECK']
+generated-members = ["cv2.*"]
+disable=["no-name-in-module"]
+
+[tool.mypy]
+warn_unused_ignores = true
+disable_error_code = ["import-untyped"]
+python_version=3.14
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+respect-gitignore = true
+target-version = "py314"
+
+[tool.ruff.lint]
+# Enable specific rules
+select = [
+    # "D", # pydocstyle
+    "E",  # Pycodestyle errors
+    "ERA", # eradicate (commented-out code)
+    "F",  # pyflakes
+    "I",   # Import checks
+    "W",  # Pycodestyle warnings
+    
+    "A", # flake8-builtins
+    "ANN", # flake8-annotations
+    "ARG", # flake8-unused-arguments
+    "B", # flake8-bugbear
+    "BLE", # flake8-blind-except
+    "C4", # flake8-comprehensions
+    "COM818", # trailing-comma-on-bare-tuple
+    "DTZ", # flake8-datetimez
+    "EM", # flake8-errmsg
+    "FIX", # flake8-fixme
+    "G", # flake8-logging-format
+    "ICN", # flake8-import-conventions
+    "INP", # flake8-no-pep420
+    "ISC", # flake8-implicit-str-concat
+    "LOG", # flake8-logging
+    "PIE", # flake8-pie
+    "PT", # flake8-pytest-style
+    "PTH", # flake8-use-pathlib
+    "PYI", # flake8-pyi
+    "RET", # flake8-return
+    "S", # flake8-bandit
+    "SIM", # flake8-simplify
+    "SLF", # flake8-self
+    "SLOT", # flake8-slots
+    "T10", # flake8-debugger
+
+    "C90",  # mccabe
+    "FLY", # flynt
+    "NPY", # numpy-specific rules
+    "PD", # pandas-vet
+    "PERF", # perflint (for performance)
+    "RUF",
+    "UP", # derived from pyupgrade
+]
+
+ignore = [
+	"S101", # assert
+	"F722", # forward-annotation-syntax-error (disable for jaxtyping)
+	"UP037", # remove quotes from type annotation (disable for jaxtyping)
+]
+
