@@ -5,3 +5,4 @@ uv sync --extra cuda
 pre-commit install
 pre-commit run --all-files
 
+uv pip install -e .

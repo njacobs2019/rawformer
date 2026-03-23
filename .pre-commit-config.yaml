@@ -20,4 +20,7 @@ repos:
     # Run the linter.
     - id: ruff
       types_or: [ python, pyi ]
-
+- repo: https://github.com/kynan/nbstripout
+  rev: 0.9.1
+  hooks:
+    - id: nbstripout
