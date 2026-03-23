@@ -16,6 +16,7 @@ dependencies = [
     "numpy>=2.4.3",
     "opencv-python-headless>=4.13.0.92",
     "scipy>=1.17.1",
+    "torchvision>=0.25.0",
     "tqdm>=4.67.3",
 ]
 
