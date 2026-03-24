@@ -1,0 +1,132 @@
+"""
+My ViT Implementation, note the following changes from Attention is All You Need
+- Attention is all you need --> ViT
+- $d_{model}$ --> embed_dim
+- $d_{ff}$ --> mlp_hidden_dim
+"""
+
+import math
+
+import torch
+import torch.nn.functional as F
+from beartype import beartype
+from jaxtyping import Float
+from torch import Tensor, nn
+
+
+@beartype
+def scaled_dot_product_attn(
+    Q: Float[Tensor, "b l d_k"],
+    K: Float[Tensor, "b l d_k"],
+    V: Float[Tensor, "b l d_v"],
+) -> Float[Tensor, "b l d_v"]:
+    # NOTE: This is only 1 head
+    _batch, _length, d_k = K.shape
+
+    factor = 1 / math.sqrt(d_k)
+
+    K_t = torch.transpose(K, 1, 2)  # (b, d_k, l)
+    scaled_scores = torch.bmm(Q, K_t) * factor  # (b, l, l)
+    attn_weights = torch.softmax(scaled_scores, dim=2)  # (b, l, l)
+
+    return torch.bmm(attn_weights, V)
+
+
+@beartype
+class AttentionHead(nn.Module):
+    def __init__(self, embed_dim: int, d_k: int, d_v: int, qkv_bias: bool) -> None:
+        super().__init__()
+        self.W_q = nn.Linear(embed_dim, d_k, bias=qkv_bias)
+        self.W_k = nn.Linear(embed_dim, d_k, bias=qkv_bias)
+        self.W_v = nn.Linear(embed_dim, d_v, bias=qkv_bias)
+
+    def forward(self, X: Float[Tensor, "b l embed_dim"]) -> Float[Tensor, "b l d_v"]:
+
+        Q = self.W_q(X)
+        K = self.W_k(X)
+        V = self.W_v(X)
+
+        return scaled_dot_product_attn(Q, K, V)
+
+
+@beartype
+class MHA(nn.Module):
+    def __init__(
+        self,
+        num_heads: int,
+        embed_dim: int,
+        d_k: int,
+        d_v: int,
+        qkv_bias: bool,
+    ) -> None:
+        super().__init__()
+
+        self.heads = nn.ModuleList(
+            [
+                AttentionHead(embed_dim=embed_dim, d_k=d_k, d_v=d_v, qkv_bias=qkv_bias)
+                for _ in range(num_heads)
+            ]
+        )
+
+        self.linear = nn.Linear(num_heads * d_v, embed_dim)
+
+    def forward(
+        self, x: Float[Tensor, "b l embed_dim"]
+    ) -> Float[Tensor, "b l embed_dim"]:
+        attn_head_out = torch.cat([head(x) for head in self.heads], dim=2)
+        return self.linear(attn_head_out)
+
+
+@beartype
+class MLP(nn.Module):
+    def __init__(self, embed_dim: int, mlp_hidden_dim: int) -> None:
+        super().__init__()
+        self.layer1 = nn.Linear(embed_dim, mlp_hidden_dim, bias=True)
+        self.layer2 = nn.Linear(mlp_hidden_dim, embed_dim, bias=True)
+
+    def forward(
+        self, x: Float[Tensor, "b l embed_dim"]
+    ) -> Float[Tensor, "b l embed_dim"]:
+        x = self.layer1(x)
+        x = F.gelu(x)
+        return self.layer2(x)
+
+
+@beartype
+class EncoderBlock(nn.Module):
+    def __init__(
+        self,
+        num_heads: int,
+        embed_dim: int,
+        d_k: int,
+        d_v: int,
+        qkv_bias: bool,
+        mlp_hidden_dim: int,
+        dropout_prob: float,
+    ) -> None:
+        super().__init__()
+
+        # First residual block
+        self.norm1 = nn.LayerNorm(normalized_shape=embed_dim)
+        self.mha = MHA(
+            num_heads=num_heads,
+            embed_dim=embed_dim,
+            d_k=d_k,
+            d_v=d_v,
+            qkv_bias=qkv_bias,
+        )
+
+        # Second residual block
+        self.norm2 = nn.LayerNorm(normalized_shape=embed_dim)
+        self.mlp = MLP(embed_dim=embed_dim, mlp_hidden_dim=mlp_hidden_dim)
+
+    def forward(self, x: Float[Tensor, "b l d"]) -> Float[Tensor, "b l d"]:
+        # Residual block 1
+        x = x + self.mha(self.norm1(x))
+
+        # Residual block 2
+        return x + self.mlp(self.norm2(x))
+
+
+# TODO: FIX DROPOUT
+# TODO: When to turn off bias in linear layers?
