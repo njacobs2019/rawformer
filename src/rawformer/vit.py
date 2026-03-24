@@ -20,14 +20,15 @@ def scaled_dot_product_attn(
     K: Float[Tensor, "b l d_k"],
     V: Float[Tensor, "b l d_v"],
 ) -> Float[Tensor, "b l d_v"]:
+    # TODO: Add attention mask
     # NOTE: This is only 1 head
-    _batch, _length, d_k = K.shape
+    d_k = K.shape[-1]
 
     factor = 1 / math.sqrt(d_k)
 
     K_t = torch.transpose(K, 1, 2)  # (b, d_k, l)
     scaled_scores = torch.bmm(Q, K_t) * factor  # (b, l, l)
-    attn_weights = torch.softmax(scaled_scores, dim=2)  # (b, l, l)
+    attn_weights = torch.softmax(scaled_scores, dim=-1)  # (b, l, l)
 
     return torch.bmm(attn_weights, V)
 
@@ -50,7 +51,7 @@ class AttentionHead(nn.Module):
 
 
 @beartype
-class MHA(nn.Module):
+class MultiHeadAttention(nn.Module):
     def __init__(
         self,
         num_heads: int,
@@ -68,28 +69,28 @@ class MHA(nn.Module):
             ]
         )
 
-        self.linear = nn.Linear(num_heads * d_v, embed_dim)
+        self.out_proj = nn.Linear(num_heads * d_v, embed_dim)
 
     def forward(
         self, x: Float[Tensor, "b l embed_dim"]
     ) -> Float[Tensor, "b l embed_dim"]:
         attn_head_out = torch.cat([head(x) for head in self.heads], dim=2)
-        return self.linear(attn_head_out)
+        return self.out_proj(attn_head_out)
 
 
 @beartype
 class MLP(nn.Module):
     def __init__(self, embed_dim: int, mlp_hidden_dim: int) -> None:
         super().__init__()
-        self.layer1 = nn.Linear(embed_dim, mlp_hidden_dim, bias=True)
-        self.layer2 = nn.Linear(mlp_hidden_dim, embed_dim, bias=True)
+        self.fc1 = nn.Linear(embed_dim, mlp_hidden_dim, bias=True)
+        self.fc2 = nn.Linear(mlp_hidden_dim, embed_dim, bias=True)
 
     def forward(
         self, x: Float[Tensor, "b l embed_dim"]
     ) -> Float[Tensor, "b l embed_dim"]:
-        x = self.layer1(x)
+        x = self.fc1(x)
         x = F.gelu(x)
-        return self.layer2(x)
+        return self.fc2(x)
 
 
 @beartype
@@ -108,7 +109,7 @@ class EncoderBlock(nn.Module):
 
         # First residual block
         self.norm1 = nn.LayerNorm(normalized_shape=embed_dim)
-        self.mha = MHA(
+        self.mha = MultiHeadAttention(
             num_heads=num_heads,
             embed_dim=embed_dim,
             d_k=d_k,
