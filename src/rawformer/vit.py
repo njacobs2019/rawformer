@@ -10,6 +10,7 @@ import math
 import torch
 import torch.nn.functional as F
 from beartype import beartype
+from einops import rearrange
 from jaxtyping import Float
 from torch import Tensor, nn
 
@@ -21,7 +22,6 @@ def scaled_dot_product_attn(
     V: Float[Tensor, "b l d_v"],
 ) -> Float[Tensor, "b l d_v"]:
     # TODO: Add attention mask
-    # NOTE: This is only 1 head
     d_k = K.shape[-1]
 
     factor = 1 / math.sqrt(d_k)
@@ -76,6 +76,46 @@ class MultiHeadAttention(nn.Module):
     ) -> Float[Tensor, "b l embed_dim"]:
         attn_head_out = torch.cat([head(x) for head in self.heads], dim=2)
         return self.out_proj(attn_head_out)
+
+
+@beartype
+class ParallelMultiHeadAttention(nn.Module):
+    def __init__(
+        self,
+        num_heads: int,
+        embed_dim: int,
+        d_k: int,
+        d_v: int,
+        qkv_bias: bool,
+    ) -> None:
+        super().__init__()
+
+        # Sizes
+        self.num_heads = num_heads
+
+        self.W_q = nn.Linear(embed_dim, d_k * num_heads, bias=qkv_bias)
+        self.W_k = nn.Linear(embed_dim, d_k * num_heads, bias=qkv_bias)
+        self.W_v = nn.Linear(embed_dim, d_v * num_heads, bias=qkv_bias)
+
+        self.out_proj = nn.Linear(num_heads * d_v, embed_dim)
+
+    def forward(
+        self, x: Float[Tensor, "batch length embed_dim"]
+    ) -> Float[Tensor, "batch length embed_dim"]:
+
+        Q = self.W_q(x)  # (b, l, d_k*num_heads)
+        Q = rearrange(Q, "b l (d_k num_heads) -> (b num_heads) l d_k")
+
+        K = self.W_k(x)
+        K = rearrange(K, "b l (d_k num_heads) -> (b num_heads) l d_k")
+
+        V = self.W_v(x)
+        V = rearrange(V, "b l (d_v num_heads) -> (b num_heads) l d_v")
+
+        attn = scaled_dot_product_attn(Q, K, V)  # (b*num_heads, l, d_v)
+        attn_unfolded = rearrange(attn, "(b num_heads) l d_v -> b l (num_heads d_v)")
+
+        return self.out_proj(attn_unfolded)
 
 
 @beartype
