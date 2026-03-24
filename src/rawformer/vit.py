@@ -147,7 +147,7 @@ class EncoderBlock(nn.Module):
 
         # First residual block
         self.norm1 = nn.LayerNorm(normalized_shape=embed_dim)
-        self.mha = MultiHeadAttention(
+        self.mha = ParallelMultiHeadAttention(
             num_heads=num_heads,
             embed_dim=embed_dim,
             d_k=d_k,
