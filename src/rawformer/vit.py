@@ -103,8 +103,8 @@ class EncoderBlock(nn.Module):
         d_v: int,
         qkv_bias: bool,
         mlp_hidden_dim: int,
-        dropout_prob: float,
     ) -> None:
+        # TODO: Add dropout_prob
         super().__init__()
 
         # First residual block

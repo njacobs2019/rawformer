@@ -157,5 +157,6 @@ ignore = [
 	"S101", # assert
 	"F722", # forward-annotation-syntax-error (disable for jaxtyping)
 	"UP037", # remove quotes from type annotation (disable for jaxtyping)
+    "FIX002", # Don't treat TODO comments as an error
 ]
 
