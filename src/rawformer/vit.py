@@ -27,8 +27,8 @@ def scaled_dot_product_attn(
     factor = 1 / math.sqrt(d_k)
 
     K_t = torch.transpose(K, 1, 2)  # (b, d_k, l)
-    scaled_scores = torch.bmm(Q, K_t) * factor  # (b, l, l)
-    attn_weights = torch.softmax(scaled_scores, dim=-1)  # (b, l, l)
+    scores = torch.bmm(Q, K_t) * factor  # (b, l, l)
+    attn_weights = torch.softmax(scores, dim=-1)  # (b, l, l)
 
     return torch.bmm(attn_weights, V)
 
@@ -90,9 +90,7 @@ class ParallelMultiHeadAttention(nn.Module):
     ) -> None:
         super().__init__()
 
-        # Sizes
         self.num_heads = num_heads
-
         self.W_q = nn.Linear(embed_dim, d_k * num_heads, bias=qkv_bias)
         self.W_k = nn.Linear(embed_dim, d_k * num_heads, bias=qkv_bias)
         self.W_v = nn.Linear(embed_dim, d_v * num_heads, bias=qkv_bias)
@@ -103,19 +101,19 @@ class ParallelMultiHeadAttention(nn.Module):
         self, x: Float[Tensor, "batch length embed_dim"]
     ) -> Float[Tensor, "batch length embed_dim"]:
 
-        Q = self.W_q(x)  # (b, l, d_k*num_heads)
-        Q = rearrange(Q, "b l (d_k num_heads) -> (b num_heads) l d_k")
+        Q = self.W_q(x)
+        Q = rearrange(Q, "b l (d h) -> (b h) l d", h=self.num_heads)
 
         K = self.W_k(x)
-        K = rearrange(K, "b l (d_k num_heads) -> (b num_heads) l d_k")
+        K = rearrange(K, "b l (d h) -> (b h) l d", h=self.num_heads)
 
         V = self.W_v(x)
-        V = rearrange(V, "b l (d_v num_heads) -> (b num_heads) l d_v")
+        V = rearrange(V, "b l (d h) -> (b h) l d", h=self.num_heads)
 
-        attn = scaled_dot_product_attn(Q, K, V)  # (b*num_heads, l, d_v)
-        attn_unfolded = rearrange(attn, "(b num_heads) l d_v -> b l (num_heads d_v)")
+        attn_out = scaled_dot_product_attn(Q, K, V)
+        attn_merged = rearrange(attn_out, "(b h) l d -> b l (h d)", h=self.num_heads)
 
-        return self.out_proj(attn_unfolded)
+        return self.out_proj(attn_merged)
 
 
 @beartype
