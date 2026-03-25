@@ -59,6 +59,7 @@ class MultiHeadAttention(nn.Module):
         d_k: int,
         d_v: int,
         qkv_bias: bool,
+        dropout: float = 0.0,
     ) -> None:
         super().__init__()
 
@@ -70,12 +71,14 @@ class MultiHeadAttention(nn.Module):
         )
 
         self.out_proj = nn.Linear(num_heads * d_v, embed_dim)
+        self.dropout = nn.Dropout(p=dropout)
 
     def forward(
         self, x: Float[Tensor, "b l embed_dim"]
     ) -> Float[Tensor, "b l embed_dim"]:
         attn_head_out = torch.cat([head(x) for head in self.heads], dim=2)
-        return self.out_proj(attn_head_out)
+        attn_proj = self.out_proj(attn_head_out)
+        return self.dropout(attn_proj)
 
 
 @beartype
@@ -87,6 +90,7 @@ class ParallelMultiHeadAttention(nn.Module):
         d_k: int,
         d_v: int,
         qkv_bias: bool,
+        dropout: float,
     ) -> None:
         super().__init__()
 
@@ -96,6 +100,7 @@ class ParallelMultiHeadAttention(nn.Module):
         self.W_v = nn.Linear(embed_dim, d_v * num_heads, bias=qkv_bias)
 
         self.out_proj = nn.Linear(num_heads * d_v, embed_dim)
+        self.dropout = nn.Dropout(p=dropout)
 
     def forward(
         self, x: Float[Tensor, "batch length embed_dim"]
@@ -112,23 +117,27 @@ class ParallelMultiHeadAttention(nn.Module):
 
         attn_out = scaled_dot_product_attn(Q, K, V)
         attn_merged = rearrange(attn_out, "(b h) l d -> b l (h d)", h=self.num_heads)
+        attn_proj = self.out_proj(attn_merged)
 
-        return self.out_proj(attn_merged)
+        return self.dropout(attn_proj)
 
 
 @beartype
 class MLP(nn.Module):
-    def __init__(self, embed_dim: int, mlp_hidden_dim: int) -> None:
+    def __init__(self, embed_dim: int, mlp_hidden_dim: int, dropout: float) -> None:
         super().__init__()
         self.fc1 = nn.Linear(embed_dim, mlp_hidden_dim, bias=True)
         self.fc2 = nn.Linear(mlp_hidden_dim, embed_dim, bias=True)
+        self.dropout = nn.Dropout(p=dropout)
 
     def forward(
         self, x: Float[Tensor, "b l embed_dim"]
     ) -> Float[Tensor, "b l embed_dim"]:
         x = self.fc1(x)
         x = F.gelu(x)
-        return self.fc2(x)
+        x = self.dropout(x)
+        x = self.fc2(x)
+        return self.dropout(x)
 
 
 @beartype
@@ -141,8 +150,8 @@ class EncoderBlock(nn.Module):
         d_v: int,
         qkv_bias: bool,
         mlp_hidden_dim: int,
+        dropout: float,
     ) -> None:
-        # TODO: Add dropout_prob
         super().__init__()
 
         # First residual block
@@ -153,11 +162,14 @@ class EncoderBlock(nn.Module):
             d_k=d_k,
             d_v=d_v,
             qkv_bias=qkv_bias,
+            dropout=dropout,
         )
 
         # Second residual block
         self.norm2 = nn.LayerNorm(normalized_shape=embed_dim)
-        self.mlp = MLP(embed_dim=embed_dim, mlp_hidden_dim=mlp_hidden_dim)
+        self.mlp = MLP(
+            embed_dim=embed_dim, mlp_hidden_dim=mlp_hidden_dim, dropout=dropout
+        )
 
     def forward(self, x: Float[Tensor, "b l d"]) -> Float[Tensor, "b l d"]:
         # Residual block 1
@@ -169,12 +181,12 @@ class EncoderBlock(nn.Module):
 
 @beartype
 class LearnedPositionEmbeddings(nn.Module):
-    def __init__(self, max_seq_len: int, embed_dim: int) -> None:
+    def __init__(self, max_len: int, embed_dim: int) -> None:
         super().__init__()
 
-        self.max_len = max_seq_len + 1
+        self.max_len = max_len
         self.E = nn.Parameter(
-            torch.normal(mean=0.0, std=0.02, size=(1, self.max_len, embed_dim))
+            torch.normal(mean=0.0, std=0.02, size=(1, max_len, embed_dim))
         )  # Same as ViT and BERT
 
     def forward(self, x: Float[Tensor, "b l d"]) -> Float[Tensor, "b l d"]:
@@ -222,6 +234,7 @@ class ViT(nn.Module):
         patch_embedding: nn.Module,
         position_embedding: nn.Module,
         head: nn.Module | None,
+        dropout: float,
     ) -> None:
         super().__init__()
 
@@ -234,6 +247,7 @@ class ViT(nn.Module):
                     d_v=d_v,
                     qkv_bias=qkv_bias,
                     mlp_hidden_dim=mlp_hidden_dim,
+                    dropout=dropout,
                 )
                 for _ in range(num_layers)
             ]
@@ -248,16 +262,19 @@ class ViT(nn.Module):
         )  # same as ViT and BERT initialization
 
         self.head = head or nn.Sequential(
-            nn.Linear(embed_dim, embed_dim), nn.GELU(), nn.Linear(embed_dim, embed_dim)
+            nn.Linear(embed_dim, embed_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(embed_dim, embed_dim),
+            nn.Dropout(dropout),
         )
 
-    def forward(self, x: Float[Tensor, "b c h w"]):
+    def forward(self, x: Float[Tensor, "b c h w"]) -> Float[Tensor, "b num_classes"]:
 
         # Create patch embeddings
         x = self.patch_embedding(x)  # (b, len, embed_dim)
 
-        # Prepend cls token
-        # x = torch.cat([])
+        # Prepend cls token # x = torch.cat([])
 
         # patchify the tokens
         # cat the class token in
@@ -267,7 +284,59 @@ class ViT(nn.Module):
 
         # Extract cls token
         # run cls token through MLP
+        return x
 
 
-# TODO: FIX DROPOUT
-# TODO: When to turn off bias in linear layers?
+@beartype
+class ViTAE(nn.Module):
+    def __init__(
+        self,
+        num_layers: int,
+        num_heads: int,
+        embed_dim: int,
+        d_k: int,
+        d_v: int,
+        qkv_bias: bool,
+        mlp_hidden_dim: int,
+        patch_embedding: nn.Module,
+        position_embedding: nn.Module,
+        out_channels: int,
+        dropout: float,
+    ) -> None:
+        super().__init__()
+
+        self.patch_embedding = patch_embedding
+        self.position_embedding = position_embedding
+
+        self.layers = nn.ModuleList(
+            [
+                EncoderBlock(
+                    num_heads=num_heads,
+                    embed_dim=embed_dim,
+                    d_k=d_k,
+                    d_v=d_v,
+                    qkv_bias=qkv_bias,
+                    mlp_hidden_dim=mlp_hidden_dim,
+                    dropout=dropout,
+                )
+                for _ in range(num_layers)
+            ]
+        )
+
+        self.head = nn.Linear(embed_dim, out_channels)
+
+    def forward(self, x: Float[Tensor, "b c h w"]) -> Float[Tensor, "b c h w"]:
+        _b, _c, h, w = x.shape
+
+        # Embed the img
+        x = self.patch_embedding(x)  # (b, len, embed_dim)
+        x = self.position_embedding(x)
+
+        # Transfomer
+        for layer in self.layers:
+            x = layer(x)
+
+        # Back to img space
+        x = self.head(x)  # (b, len, channels)
+        x = rearrange(x, "b l c -> b c l")
+        return F.fold(x, output_size=(h, w), kernel_size=1, stride=1)  # (b, c, h, w)
