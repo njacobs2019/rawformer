@@ -167,5 +167,107 @@ class EncoderBlock(nn.Module):
         return x + self.mlp(self.norm2(x))
 
 
+@beartype
+class LearnedPositionEmbeddings(nn.Module):
+    def __init__(self, max_seq_len: int, embed_dim: int) -> None:
+        super().__init__()
+
+        self.max_len = max_seq_len + 1
+        self.E = nn.Parameter(
+            torch.normal(mean=0.0, std=0.02, size=(1, self.max_len, embed_dim))
+        )  # Same as ViT and BERT
+
+    def forward(self, x: Float[Tensor, "b l d"]) -> Float[Tensor, "b l d"]:
+        length = x.shape[1]
+        assert length <= self.max_len
+
+        return x + self.E[:, :length, :]
+
+
+@beartype
+class SimplePatchEmbedding(nn.Module):
+    """
+    Creates non-overlapping patches and linearly embeds them
+    """
+
+    def __init__(self, patch_len: int, channels: int, embed_dim: int) -> None:
+        super().__init__()
+
+        self.patch_len = patch_len
+        self.fc = nn.Linear(patch_len * patch_len * channels, embed_dim)
+
+    def forward(self, x: Float[Tensor, "b c h w"]) -> Float[Tensor, "b len embed_dim"]:
+        _b, _c, h, w = x.shape
+
+        assert h % self.patch_len == 0, "Height must be divisible by patch_len"
+        assert w % self.patch_len == 0, "Width must be divisible by patch_len"
+
+        tokens = F.unfold(x, kernel_size=self.patch_len, stride=self.patch_len)
+        tokens = rearrange(tokens, "b dim len -> b len dim")
+
+        return self.fc(tokens)
+
+
+@beartype
+class ViT(nn.Module):
+    def __init__(
+        self,
+        num_layers: int,
+        num_heads: int,
+        embed_dim: int,
+        d_k: int,
+        d_v: int,
+        qkv_bias: bool,
+        mlp_hidden_dim: int,
+        patch_embedding: nn.Module,
+        position_embedding: nn.Module,
+        head: nn.Module | None,
+    ) -> None:
+        super().__init__()
+
+        self.layers = nn.ModuleList(
+            [
+                EncoderBlock(
+                    num_heads=num_heads,
+                    embed_dim=embed_dim,
+                    d_k=d_k,
+                    d_v=d_v,
+                    qkv_bias=qkv_bias,
+                    mlp_hidden_dim=mlp_hidden_dim,
+                )
+                for _ in range(num_layers)
+            ]
+        )
+
+        self.patch_embedding = patch_embedding
+
+        self.position_embedding = position_embedding
+
+        self.cls_tok = nn.Parameter(
+            torch.zeros(1, 1, embed_dim)
+        )  # same as ViT and BERT initialization
+
+        self.head = head or nn.Sequential(
+            nn.Linear(embed_dim, embed_dim), nn.GELU(), nn.Linear(embed_dim, embed_dim)
+        )
+
+    def forward(self, x: Float[Tensor, "b c h w"]):
+
+        # Create patch embeddings
+        x = self.patch_embedding(x)  # (b, len, embed_dim)
+
+        # Prepend cls token
+        # x = torch.cat([])
+
+        # patchify the tokens
+        # cat the class token in
+        # add position embeddings
+
+        # run through layers
+
+        # Extract cls token
+        # run cls token through MLP
+
+
 # TODO: FIX DROPOUT
 # TODO: When to turn off bias in linear layers?
