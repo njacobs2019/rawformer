@@ -27,13 +27,12 @@ dev = [
     "mypy>=1.19.1",
     "nbstripout>=0.9.1",
     "pre-commit>=4.5.1",
-    "pylint>=4.0.5",
     "ruff>=0.15.7",
 ]
 
 [project.optional-dependencies]
-cpu = ["torch~=2.10.0"]
-cuda = ["torch~=2.10.0"]
+cpu = ["torch~=2.11.0"]
+cuda = ["torch~=2.11.0"]
 
 [tool.uv]
 conflicts = [[
@@ -44,7 +43,7 @@ conflicts = [[
 [tool.uv.sources]
 torch = [
   { index = "pytorch-cpu",   extra = "cpu" },
-  { index = "pytorch-cu129", extra = "cuda" },
+  { index = "pytorch-cu", extra = "cuda" },
 ]
 
 [[tool.uv.index]]
@@ -53,8 +52,8 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [[tool.uv.index]]
-name = "pytorch-cu129"
-url = "https://download.pytorch.org/whl/cu129"
+name = "pytorch-cu"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [project.scripts]
@@ -71,32 +70,6 @@ module-name = "rawformer"
 [project.urls]
 Homepage = "https://github.com/njacobs2019/rawformer"
 Issues = "https://github.com/njacobs2019/rawformer/issues"
-
-[tool.pylint.'MESSAGES CONTROL']
-disable = """
-duplicate-code,
-fixme,
-forgotten-debug-statement,
-import-outside-toplevel,
-invalid-name,
-line-too-long,
-missing-class-docstring,
-missing-function-docstring,
-missing-module-docstring,
-redefined-outer-name,
-relative-beyond-top-level,
-too-few-public-methods,
-too-many-arguments,
-too-many-instance-attributes,
-too-many-locals,
-too-many-positional-arguments,
-too-many-statements,
-unused-argument,
-"""
-
-[tool.pylint.'TYPECHECK']
-generated-members = ["cv2.*"]
-disable=["no-name-in-module"]
 
 [tool.mypy]
 warn_unused_ignores = true
@@ -161,4 +134,3 @@ ignore = [
     "FIX002", # Don't treat TODO comments as an error
     "RET504", # Unnecessary assign before return statement
 ]
-
