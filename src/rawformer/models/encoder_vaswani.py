@@ -1,3 +1,7 @@
+"""
+My implementation of the encoder from Attention is all you need
+"""
+
 import math
 
 import torch
