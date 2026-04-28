@@ -21,7 +21,6 @@ def scaled_dot_product_attn(
     K: Float[Tensor, "b l d_k"],
     V: Float[Tensor, "b l d_v"],
 ) -> Float[Tensor, "b l d_v"]:
-    # TODO: Add attention mask
     d_k = K.shape[-1]
 
     factor = 1 / math.sqrt(d_k)
@@ -134,7 +133,7 @@ class MLP(nn.Module):
         self, x: Float[Tensor, "b l embed_dim"]
     ) -> Float[Tensor, "b l embed_dim"]:
         x = self.fc1(x)
-        x = F.gelu(x)
+        x = F.gelu(x, approximate="tanh")
         x = self.dropout(x)
         x = self.fc2(x)
         return self.dropout(x)

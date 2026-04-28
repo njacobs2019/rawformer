@@ -83,13 +83,13 @@ class ViT(nn.Module):
         mlp_hidden_dim: int,
         qkv_bias: bool,
         patch_embedding: nn.Module,
-        rope: nn.Module | None,
+        rope: nn.Module | None,  # TODO: Implement
         position_embedding: nn.Module | None,
         cls_head: nn.Module | None,
-        out_head: nn.Module | None,
+        out_head: nn.Module | None,  # TODO: Implement
         dropout: float = 0.0,
         attn_dropout: float = 0.0,
-        attn_mask: Tensor | None = None,
+        attn_mask: Tensor | None = None,  # TODO: Implement and register as buffer
     ) -> None:
         """Vision Transformer
 
@@ -160,6 +160,8 @@ class ViT(nn.Module):
         self.pos_embedding = position_embedding
 
         self.cls_head = cls_head
+        self.out_head = out_head
+
         self.cls_token = None
         if cls_head:
             self.cls_token = nn.Parameter(
@@ -185,23 +187,24 @@ class ViT(nn.Module):
         # Create patch embeddings
         x = self.patch_embedding(x)  # (b, len, embed_dim)
 
-        # Position embedding
-        if self.pos_embedding is not None:
-            x = self.pos_embedding(x)  # (b, len, embed_dim)
-
         # Prepend class token
         if self.cls_token is not None:
             cls_tok = self.cls_token.expand(x.shape[0], -1, -1)
             x = torch.cat((cls_tok, x), dim=1)
 
+        # Position embedding
+        if self.pos_embedding is not None:
+            x = self.pos_embedding(x)  # (b, len, embed_dim)
+
+        # TODO: DROPOUT HERE???
+
         x = self.layers(x)
 
-        # Extract class token
-        if self.cls_token is not None:
-            x = x[:, 1, :]  # (b, embed_dim)
-
+        # Extract and project cls token
         if self.cls_head is not None:
-            x = self.cls_head(x)
+            x = self.cls_head(x[:, 0, :])
+        else:
+            raise NotImplementedError  # TODO
 
         return x
 
