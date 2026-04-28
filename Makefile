@@ -3,8 +3,6 @@ clean_py:
 
 
 lint:
-	ruff format src/rawformer/
-	ruff check src/rawformer/
+	ruff format src/rawformer/ tests/
+	ruff check src/rawformer/ tests/
 	mypy src/
-	pylint src/
-

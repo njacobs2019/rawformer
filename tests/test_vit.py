@@ -3,8 +3,8 @@
 import torch
 from torch import nn
 
-from .models import LearnedPositionEmbeddings, SimplePatchEmbedding, ViT
-from .models.vit import EncoderBlock
+from rawformer.models import LearnedPositionEmbeddings, SimplePatchEmbedding, ViT
+from ..src.rawformer.models.vit import EncoderBlock
 
 
 def test_simple_patch_embeddings() -> None:
@@ -79,7 +79,7 @@ def test_encoder_block() -> None:
     assert out.shape == (batch, length, dim)
 
 
-def test_vit() -> None:
+def test_vit_cls() -> None:
     # Test params
     batch = 2
     channels = 1
@@ -108,8 +108,47 @@ def test_vit() -> None:
         patch_embedding=patch_emb,
         rope=None,
         position_embedding=pos_emb,
-        cls_head=head,
-        out_head=None,
+        use_cls_tok=True,
+        head=head,
+    )
+
+    # Forward pass and check shape
+    x = torch.rand(batch, channels, img_size, img_size)
+    y = vit(x)
+    assert y.shape == (batch, 1)
+
+
+def test_vit_ae() -> None:
+    # Test params
+    batch = 2
+    channels = 1
+    dim = 12
+    img_size = 224
+    mlp_hidden_dim = 5
+    num_heads = 3
+    patch_size = 14
+    max_length = (img_size // patch_size) ** 2 + 1
+
+    # Create objects
+    patch_emb = SimplePatchEmbedding(
+        patch_len=patch_size, channels=channels, embed_dim=dim
+    )
+
+    pos_emb = LearnedPositionEmbeddings(max_len=max_length, embed_dim=dim)
+
+    head = nn.Sequential(nn.Linear(dim, 1), nn.Sigmoid())
+
+    vit = ViT(
+        num_layers=2,
+        num_heads=num_heads,
+        embed_dim=dim,
+        mlp_hidden_dim=mlp_hidden_dim,
+        qkv_bias=True,
+        patch_embedding=patch_emb,
+        rope=None,
+        position_embedding=pos_emb,
+        use_cls_tok=False,
+        head=head,
     )
 
     # Forward pass and check shape

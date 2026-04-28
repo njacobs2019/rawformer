@@ -82,8 +82,8 @@ class ViT(nn.Module):
         patch_embedding: nn.Module,
         rope: nn.Module | None,  # TODO: Implement
         position_embedding: nn.Module | None,
-        cls_head: nn.Module | None,
-        out_head: nn.Module | None,  # TODO: Implement
+        use_cls_tok: bool,
+        head: nn.Module | None,
         dropout: float = 0.0,
         attn_dropout: float = 0.0,
         attn_mask: Tensor | None = None,  # TODO: Implement and register as buffer
@@ -110,13 +110,8 @@ class ViT(nn.Module):
             position_embedding: Additive position embedding applied to the token
                 sequence before the transformer stack. Mutually exclusive with
                 `rope`.
-            cls_head: Classification head operating on a prepended CLS token,
-                producing logits of shape `(B, num_classes)`. Mutually exclusive
-                with `out_head`.
-            out_head: Per-token head operating on the full token sequence,
-                producing outputs of shape `(B, L, out_dim)` (e.g. for dense
-                prediction or masked-image-modeling). Mutually exclusive with
-                `cls_head`.
+            use_cls_tok: Use a class token (prepend at beginning, extract at end)
+            head: Sub-network that operates on transformer output e.g. (b, len, dim)
             dropout: Probability of dropout during training
             attn_dropout: Probability of dropout during training of attention scores
                 Note, used in BERT.
@@ -139,14 +134,6 @@ class ViT(nn.Module):
             )
             raise ValueError(msg)
 
-        if (cls_head is None) == (out_head is None):
-            msg = (
-                "Provide exactly one of `cls_head` or `out_head` "
-                f"(got cls_head={cls_head is not None}, "
-                f"out_head={out_head is not None})"
-            )
-            raise ValueError(msg)
-
         if embed_dim % num_heads != 0:
             msg = (
                 f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})"
@@ -156,12 +143,10 @@ class ViT(nn.Module):
         self.patch_embedding = patch_embedding
         self.pos_embedding = position_embedding
 
-        self.cls_head = cls_head
-        self.out_head = out_head
-
-        self.cls_token = None
-        if cls_head:
-            self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.head = head
+        self.cls_tok = (
+            nn.Parameter(torch.zeros(1, 1, embed_dim)) if use_cls_tok else None
+        )
 
         self.layers = nn.Sequential(
             *[
@@ -186,8 +171,8 @@ class ViT(nn.Module):
         x = self.patch_embedding(x)  # (b, len, embed_dim)
 
         # Prepend class token
-        if self.cls_token is not None:
-            cls_tok = self.cls_token.expand(x.shape[0], -1, -1)
+        if self.cls_tok is not None:
+            cls_tok = self.cls_tok.expand(x.shape[0], -1, -1)
             x = torch.cat((cls_tok, x), dim=1)
 
         # Position embedding
@@ -198,11 +183,13 @@ class ViT(nn.Module):
         x = self.layers(x)
         x = self.norm(x)
 
-        # Extract and project cls token
-        if self.cls_head is not None:
-            x = self.cls_head(x[:, 0, :])
-        else:
-            raise NotImplementedError  # TODO
+        # Extract class token
+        if self.cls_tok is not None:
+            x = x[:, 0, :]
+
+        # Run output head
+        if self.head is not None:
+            x = self.head(x)
 
         return x
 
