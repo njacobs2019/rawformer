@@ -9,13 +9,11 @@ import math
 
 import torch
 import torch.nn.functional as F
-from beartype import beartype
 from einops import rearrange
 from jaxtyping import Float
 from torch import Tensor, nn
 
 
-@beartype
 def scaled_dot_product_attn(
     Q: Float[Tensor, "b l d_k"],
     K: Float[Tensor, "b l d_k"],
@@ -32,7 +30,6 @@ def scaled_dot_product_attn(
     return torch.bmm(attn_weights, V)
 
 
-@beartype
 class AttentionHead(nn.Module):
     def __init__(self, embed_dim: int, d_k: int, d_v: int, qkv_bias: bool) -> None:
         super().__init__()
@@ -49,7 +46,6 @@ class AttentionHead(nn.Module):
         return scaled_dot_product_attn(Q, K, V)
 
 
-@beartype
 class MultiHeadAttention(nn.Module):
     def __init__(
         self,
@@ -80,7 +76,6 @@ class MultiHeadAttention(nn.Module):
         return self.dropout(attn_proj)
 
 
-@beartype
 class ParallelMultiHeadAttention(nn.Module):
     def __init__(
         self,
@@ -121,7 +116,6 @@ class ParallelMultiHeadAttention(nn.Module):
         return self.dropout(attn_proj)
 
 
-@beartype
 class MLP(nn.Module):
     def __init__(self, embed_dim: int, mlp_hidden_dim: int, dropout: float) -> None:
         super().__init__()
@@ -139,7 +133,6 @@ class MLP(nn.Module):
         return self.dropout(x)
 
 
-@beartype
 class EncoderBlock(nn.Module):
     def __init__(
         self,
@@ -178,7 +171,6 @@ class EncoderBlock(nn.Module):
         return x + self.mlp(self.norm2(x))
 
 
-@beartype
 class LearnedPositionEmbeddings(nn.Module):
     def __init__(self, max_len: int, embed_dim: int) -> None:
         super().__init__()
@@ -195,7 +187,6 @@ class LearnedPositionEmbeddings(nn.Module):
         return x + self.E[:, :length, :]
 
 
-@beartype
 class SimplePatchEmbedding(nn.Module):
     """
     Creates non-overlapping patches and linearly embeds them
@@ -219,7 +210,6 @@ class SimplePatchEmbedding(nn.Module):
         return self.fc(tokens)
 
 
-@beartype
 class ViT(nn.Module):
     def __init__(
         self,
@@ -286,7 +276,6 @@ class ViT(nn.Module):
         return x
 
 
-@beartype
 class ViTAE(nn.Module):
     def __init__(
         self,

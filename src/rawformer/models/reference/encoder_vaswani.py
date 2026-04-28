@@ -6,12 +6,10 @@ import math
 
 import torch
 import torch.nn.functional as F
-from beartype import beartype
 from jaxtyping import Float
 from torch import Tensor, nn
 
 
-@beartype
 def scaled_dot_product_attn(
     Q: Float[Tensor, "b l d_k"],
     K: Float[Tensor, "b l d_k"],
@@ -29,7 +27,6 @@ def scaled_dot_product_attn(
     return torch.bmm(attn_weights, V)
 
 
-@beartype
 class AttentionHead(nn.Module):
     def __init__(self, d_model: int, d_k: int, d_v: int, qkv_bias: bool) -> None:
         super().__init__()
@@ -46,7 +43,6 @@ class AttentionHead(nn.Module):
         return scaled_dot_product_attn(Q, K, V)
 
 
-@beartype
 class FFN(nn.Module):
     def __init__(self, d_model: int, d_ff: int) -> None:
         super().__init__()
@@ -59,7 +55,6 @@ class FFN(nn.Module):
         return self.layer2(x)
 
 
-@beartype
 class EncoderLayer(nn.Module):
     def __init__(
         self,
@@ -95,7 +90,6 @@ class EncoderLayer(nn.Module):
         return self.norm2(x + self.dropout(self.ff(x)))
 
 
-@beartype
 class Encoder(nn.Module):
     def __init__(
         self,

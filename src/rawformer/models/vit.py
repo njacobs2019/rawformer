@@ -4,13 +4,11 @@ ViT implementation (not true to ViT paper)
 
 import torch
 import torch.nn.functional as F
-from beartype import beartype
 from einops import rearrange
 from jaxtyping import Float
 from torch import Tensor, nn
 
 
-@beartype
 class EncoderBlock(nn.Module):
     def __init__(
         self,
@@ -73,7 +71,6 @@ class EncoderBlock(nn.Module):
         return self.mha_dropout(attn_proj)
 
 
-@beartype
 class ViT(nn.Module):
     def __init__(
         self,
@@ -210,7 +207,6 @@ class ViT(nn.Module):
         return x
 
 
-@beartype
 class SimplePatchEmbedding(nn.Module):
     """
     Creates non-overlapping patches and linearly embeds them
@@ -234,7 +230,6 @@ class SimplePatchEmbedding(nn.Module):
         return self.fc(tokens)
 
 
-@beartype
 class LearnedPositionEmbeddings(nn.Module):
     def __init__(self, max_len: int, embed_dim: int) -> None:
         super().__init__()
