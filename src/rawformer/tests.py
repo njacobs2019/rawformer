@@ -88,7 +88,7 @@ def test_vit() -> None:
     mlp_hidden_dim = 5
     num_heads = 3
     patch_size = 14
-    max_length = (img_size // patch_size) ** 2
+    max_length = (img_size // patch_size) ** 2 + 1
 
     # Create objects
     patch_emb = SimplePatchEmbedding(

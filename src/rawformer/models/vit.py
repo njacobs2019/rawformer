@@ -45,7 +45,7 @@ class EncoderBlock(nn.Module):
             nn.Linear(embed_dim, mlp_hidden_dim, bias=True),
             nn.GELU(approximate="tanh"),
             nn.Dropout(p=dropout),
-            nn.Linear(mlp_hidden_dim, embed_dim, bias=True),  # DO I NEED BIAS?
+            nn.Linear(mlp_hidden_dim, embed_dim, bias=True),
             nn.Dropout(p=dropout),
         )
 
@@ -164,9 +164,7 @@ class ViT(nn.Module):
 
         self.cls_token = None
         if cls_head:
-            self.cls_token = nn.Parameter(
-                torch.zeros(1, 1, embed_dim)
-            )  # same as ViT and BERT initialization
+            self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
 
         self.layers = nn.Sequential(
             *[
@@ -183,6 +181,9 @@ class ViT(nn.Module):
             ]
         )
 
+        self.dropout = nn.Dropout(p=dropout)
+        self.norm = nn.LayerNorm(normalized_shape=embed_dim)
+
     def forward(self, x: Float[Tensor, "b c h w"]) -> Tensor:
         # Create patch embeddings
         x = self.patch_embedding(x)  # (b, len, embed_dim)
@@ -195,10 +196,10 @@ class ViT(nn.Module):
         # Position embedding
         if self.pos_embedding is not None:
             x = self.pos_embedding(x)  # (b, len, embed_dim)
-
-        # TODO: DROPOUT HERE???
+            x = self.dropout(x)
 
         x = self.layers(x)
+        x = self.norm(x)
 
         # Extract and project cls token
         if self.cls_head is not None:
