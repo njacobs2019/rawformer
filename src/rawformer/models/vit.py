@@ -43,7 +43,7 @@ class EncoderBlock(nn.Module):
         # MLP
         self.mlp = nn.Sequential(
             nn.Linear(embed_dim, mlp_hidden_dim, bias=True),
-            nn.GELU(),
+            nn.GELU(approximate="tanh"),
             nn.Dropout(p=dropout),
             nn.Linear(mlp_hidden_dim, embed_dim, bias=True),  # DO I NEED BIAS?
             nn.Dropout(p=dropout),
@@ -186,20 +186,21 @@ class ViT(nn.Module):
         x = self.patch_embedding(x)  # (b, len, embed_dim)
 
         # Position embedding
-        if self.pos_embedding:
+        if self.pos_embedding is not None:
             x = self.pos_embedding(x)  # (b, len, embed_dim)
 
         # Prepend class token
-        if self.cls_token:
-            x = torch.cat((self.cls_token, x), dim=1)
+        if self.cls_token is not None:
+            cls_tok = self.cls_token.expand(x.shape[0], -1, -1)
+            x = torch.cat((cls_tok, x), dim=1)
 
         x = self.layers(x)
 
         # Extract class token
-        if self.cls_token:
+        if self.cls_token is not None:
             x = x[:, 1, :]  # (b, embed_dim)
 
-        if self.cls_head:
+        if self.cls_head is not None:
             x = self.cls_head(x)
 
         return x
