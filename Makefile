@@ -3,6 +3,14 @@ clean_py:
 
 
 lint:
+	@echo "LINTING"
 	ruff format src/rawformer/ tests/
 	ruff check src/rawformer/ tests/
+
+	@echo ""
+	@echo "TYPE CHECKING"
 	mypy src/
+
+	@echo ""
+	@echo "TESTING"
+	pytest

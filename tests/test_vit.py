@@ -3,8 +3,8 @@
 import torch
 from torch import nn
 
-from rawformer.models import LearnedPositionEmbeddings, SimplePatchEmbedding, ViT
-from ..src.rawformer.models.vit import EncoderBlock
+from rawformer import LearnedPositionEmbeddings, SimplePatchEmbedding, ViT
+from rawformer.vit import EncoderBlock
 
 
 def test_simple_patch_embeddings() -> None:
@@ -127,7 +127,7 @@ def test_vit_ae() -> None:
     mlp_hidden_dim = 5
     num_heads = 3
     patch_size = 14
-    max_length = (img_size // patch_size) ** 2 + 1
+    max_length = (img_size // patch_size) ** 2
 
     # Create objects
     patch_emb = SimplePatchEmbedding(
@@ -136,7 +136,7 @@ def test_vit_ae() -> None:
 
     pos_emb = LearnedPositionEmbeddings(max_len=max_length, embed_dim=dim)
 
-    head = nn.Sequential(nn.Linear(dim, 1), nn.Sigmoid())
+    head = nn.Sequential(nn.Linear(dim, 3), nn.Sigmoid())
 
     vit = ViT(
         num_layers=2,
@@ -154,4 +154,4 @@ def test_vit_ae() -> None:
     # Forward pass and check shape
     x = torch.rand(batch, channels, img_size, img_size)
     y = vit(x)
-    assert y.shape == (batch, 1)
+    assert y.shape == (batch, max_length, 3)
