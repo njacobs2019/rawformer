@@ -4,7 +4,7 @@ import pytest
 import torch
 from torch import nn
 
-from rawformer import LearnedPositionEmbeddings, SimplePatchEmbedding
+from rawformer import LearnedPositionEmbeddings, RoPE2D, SimplePatchEmbedding
 from rawformer.vit import EncoderBlock, ViT, ViTDense
 
 
@@ -68,6 +68,40 @@ def test_vit_dense() -> None:
         patch_size=patch_size, channels=channels, embed_dim=dim
     )
     pos_emb = LearnedPositionEmbeddings(max_len=max_length, embed_dim=dim)
+    head = nn.Sequential(nn.Linear(dim, 1), nn.Sigmoid())
+
+    vit = ViTDense(
+        patch_emb,
+        pos_emb,
+        head,
+        num_layers=2,
+        num_heads=num_heads,
+        embed_dim=dim,
+        mlp_hidden_dim=mlp_hidden_dim,
+    )
+
+    x = torch.rand(batch, channels, img_size, img_size)
+    y = vit(x)
+    assert y.shape == (batch, max_length, 1)
+
+
+def test_vit_dense_rope2d() -> None:
+    # Test params
+    batch = 2
+    channels = 1
+    dim = 12
+    img_size = 224
+    mlp_hidden_dim = 5
+    num_heads = 3
+    patch_size = 14
+    max_length = (img_size // patch_size) ** 2
+
+    # Create objects
+    patch_emb = SimplePatchEmbedding(
+        patch_size=patch_size, channels=channels, embed_dim=dim
+    )
+
+    pos_emb = RoPE2D(rotary_dim=dim)
     head = nn.Sequential(nn.Linear(dim, 1), nn.Sigmoid())
 
     vit = ViTDense(
