@@ -5,11 +5,9 @@ Handles positional encoding
 from typing import Protocol, runtime_checkable
 
 import torch
-from jaxtyping import Float
-from torch import Tensor, nn
+from torch import nn
 
-RoPECache = tuple[Float[Tensor, "len rot_dim"], Float[Tensor, "len rot_dim"]]
-Tokens = Float[Tensor, "b l d"]
+from .types import RoPECache, Tokens
 
 
 @runtime_checkable

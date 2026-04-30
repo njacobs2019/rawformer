@@ -8,7 +8,8 @@ from einops import rearrange
 from jaxtyping import Float
 from torch import Tensor, nn
 
-from .position_encoding import PositionScheme, RoPE2D, RoPECache, apply_rope
+from .position_encoding import PositionScheme, apply_rope
+from .types import RoPECache, Tokens
 
 
 class EncoderBlock(nn.Module):
@@ -88,7 +89,35 @@ class EncoderBlock(nn.Module):
         return self.mha_dropout(attn_proj)
 
 
-class ViTDense(nn.Module):
+class ClassToken(nn.Module):
+    def __init__(self, embed_dim: int) -> None:
+        super().__init__()
+        self.tok = nn.Parameter(torch.zeros(1, 1, embed_dim))
+
+    def prepend(
+        self,
+        tokens: Float[Tensor, "b l d"],
+        rope_cache: tuple[Float[Tensor, "l rot_dim"], Float[Tensor, "l rot_dim"]]
+        | None,
+    ) -> tuple[
+        Float[Tensor, "b l+1 d"],
+        tuple[Float[Tensor, "l+1 rot_dim"], Float[Tensor, "l+1 rot_dim"]] | None,
+    ]:
+        cls = self.tok.expand(tokens.shape[0], -1, -1)
+        tokens = torch.cat([cls, tokens], dim=1)
+
+        if rope_cache is not None:
+            sin, cos = rope_cache
+            sin = F.pad(sin, (0, 0, 1, 0), value=0.0)
+            cos = F.pad(cos, (0, 0, 1, 0), value=1.0)
+            rope_cache = (sin, cos)
+        return tokens, rope_cache
+
+    def extract(self, tokens: Tokens) -> Float[Tensor, "b dim"]:
+        return tokens[:, 0]
+
+
+class ViT(nn.Module):
     def __init__(
         self,
         patch_embed: nn.Module,
@@ -99,6 +128,7 @@ class ViTDense(nn.Module):
         num_heads: int,
         embed_dim: int,
         mlp_hidden_dim: int,
+        use_cls: bool,
         qkv_bias: bool = True,
         dropout: float = 0.0,
         attn_dropout: float = 0.0,
@@ -115,6 +145,7 @@ class ViTDense(nn.Module):
            embed_dim: Width of the residual stream and token embeddings. Per-head
                dimension is `embed_dim // num_heads`.
            mlp_hidden_dim: Hidden dimension of the per-block MLP.
+           use_cls: Use class token
            qkv_bias: Whether the Q/K/V projections include a bias term.
            dropout: Probability of dropout during training
            attn_dropout: Probability of dropout during training of attention scores
@@ -124,9 +155,16 @@ class ViTDense(nn.Module):
 
         super().__init__()
 
+        if embed_dim % num_heads != 0:
+            msg = (
+                f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})"
+            )
+            raise ValueError(msg)
+
         self.patch_embed = patch_embed
         self.pos_embed = position
         self.head = head
+        self.cls_tok = ClassToken(embed_dim=embed_dim) if use_cls else None
 
         self.layers = nn.ModuleList(
             [
@@ -152,144 +190,17 @@ class ViTDense(nn.Module):
         # Prepare position embeddings
         x, rope_cache = self.pos_embed.prepare(x, grid_size)
 
-        for layer in self.layers:
-            x = layer(x, rope_cache)
-
-        x = self.norm(x)
-
-        if self.head is not None:
-            x = self.head(x)
-
-        return x
-
-
-class ViT(nn.Module):
-    def __init__(
-        self,
-        num_layers: int,
-        num_heads: int,
-        embed_dim: int,
-        mlp_hidden_dim: int,
-        qkv_bias: bool,
-        patch_embedding: nn.Module,
-        rope: RoPE2D | None,  # TODO: Implement
-        position_embedding: nn.Module | None,
-        use_cls_tok: bool,
-        head: nn.Module | None,
-        dropout: float = 0.0,
-        attn_dropout: float = 0.0,
-        attn_mask: Tensor | None = None,  # TODO: Implement and register as buffer
-    ) -> None:
-        """Vision Transformer
-
-        Composes a patch embedding, a stack of transformer blocks, a positional
-        scheme (either RoPE applied inside attention, or an additive position
-        embedding on the token sequence), and a head (either a CLS token head
-        or a per-token output head).
-
-        Args:
-            num_layers: Number of transformer blocks in the stack.
-            num_heads: Number of attention heads per block. Must divide `embed_dim`.
-            embed_dim: Width of the residual stream and token embeddings. Per-head
-                dimension is `embed_dim // num_heads`.
-            mlp_hidden_dim: Hidden dimension of the per-block MLP.
-            qkv_bias: Whether the Q/K/V projections include a bias term. Original
-                ViT uses `True`; many modern LLMs use `False`.
-            patch_embedding: Module mapping an input image of shape `(B, C, H, W)`
-                to a token sequence of shape `(B, L, embed_dim)`.
-            rope: Rotary position embedding applied to Q and K inside attention.
-                Mutually exclusive with `position_embedding`.
-            position_embedding: Additive position embedding applied to the token
-                sequence before the transformer stack. Mutually exclusive with
-                `rope`.
-            use_cls_tok: Use a class token (prepend at beginning, extract at end)
-            head: Sub-network that operates on transformer output e.g. (b, len, dim)
-            dropout: Probability of dropout during training
-            attn_dropout: Probability of dropout during training of attention scores
-                Note, used in BERT.
-            attn_mask: Attention mask
-
-        Raises:
-            ValueError: If both or neither of `rope` and `position_embedding` are
-                provided.
-            ValueError: If both or neither of `cls_head` and `out_head` are
-                provided.
-        """
-        super().__init__()
-
-        # VALIDATE INPUTS
-        if (rope is None) == (position_embedding is None):
-            msg = (
-                "Provide exactly one of `rope` or `position_embedding` "
-                f"(got rope={rope is not None}, "
-                f"position_embedding={position_embedding is not None})"
-            )
-            raise ValueError(msg)
-
-        if embed_dim % num_heads != 0:
-            msg = (
-                f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})"
-            )
-            raise ValueError(msg)
-
-        self.patch_embedding = patch_embedding
-
-        self.pos_embedding = position_embedding
-        self.rope = rope
-
-        self.head = head
-        self.cls_tok = (
-            nn.Parameter(torch.zeros(1, 1, embed_dim)) if use_cls_tok else None
-        )
-
-        self.layers = nn.ModuleList(
-            [
-                EncoderBlock(
-                    num_heads=num_heads,
-                    head_dim=embed_dim // num_heads,
-                    qkv_bias=qkv_bias,
-                    mlp_hidden_dim=mlp_hidden_dim,
-                    dropout=dropout,
-                    attn_dropout=attn_dropout,
-                    attn_mask=attn_mask,
-                )
-                for _ in range(num_layers)
-            ]
-        )
-
-        self.dropout = nn.Dropout(p=dropout)
-        self.norm = nn.LayerNorm(normalized_shape=embed_dim)
-
-    def forward(self, x: Float[Tensor, "b c h w"]) -> Tensor:
-        # Get RoPE rot matrices
-        _b, _c, h, w = x.shape
-        rope_cache = None
-        if self.rope is not None:
-            rope_cache = self.rope.build_cache(h, w, dtype=x.dtype)
-
-        # Create patch embeddings
-        x = self.patch_embedding(x)  # (b, len, embed_dim)
-
-        # Prepend class token
         if self.cls_tok is not None:
-            cls_tok = self.cls_tok.expand(x.shape[0], -1, -1)
-            x = torch.cat((cls_tok, x), dim=1)
-
-        # Position embedding
-        if self.pos_embedding is not None:
-            x = self.pos_embedding(x)  # (b, len, embed_dim)
-            x = self.dropout(x)
+            x, rope_cache = self.cls_tok.prepend(x, rope_cache)
 
         for layer in self.layers:
             x = layer(x, rope_cache)
 
         x = self.norm(x)
 
-        # Extract class token
         if self.cls_tok is not None:
-            x = x[:, 0, :]
+            x = self.cls_tok.extract(x)
 
-        # Run output head
         if self.head is not None:
             x = self.head(x)
 

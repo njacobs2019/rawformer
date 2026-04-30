@@ -1,11 +1,10 @@
 """Basic unit tests for models"""
 
-import pytest
 import torch
 from torch import nn
 
 from rawformer import LearnedPositionEmbeddings, RoPE2D, SimplePatchEmbedding
-from rawformer.vit import EncoderBlock, ViT, ViTDense
+from rawformer.vit import EncoderBlock, ViT
 
 
 def test_encoder_block_mha() -> None:
@@ -70,7 +69,7 @@ def test_vit_dense() -> None:
     pos_emb = LearnedPositionEmbeddings(max_len=max_length, embed_dim=dim)
     head = nn.Sequential(nn.Linear(dim, 1), nn.Sigmoid())
 
-    vit = ViTDense(
+    vit = ViT(
         patch_emb,
         pos_emb,
         head,
@@ -78,6 +77,7 @@ def test_vit_dense() -> None:
         num_heads=num_heads,
         embed_dim=dim,
         mlp_hidden_dim=mlp_hidden_dim,
+        use_cls=False,
     )
 
     x = torch.rand(batch, channels, img_size, img_size)
@@ -104,7 +104,7 @@ def test_vit_dense_rope2d() -> None:
     pos_emb = RoPE2D(rotary_dim=dim)
     head = nn.Sequential(nn.Linear(dim, 1), nn.Sigmoid())
 
-    vit = ViTDense(
+    vit = ViT(
         patch_emb,
         pos_emb,
         head,
@@ -112,6 +112,7 @@ def test_vit_dense_rope2d() -> None:
         num_heads=num_heads,
         embed_dim=dim,
         mlp_hidden_dim=mlp_hidden_dim,
+        use_cls=False,
     )
 
     x = torch.rand(batch, channels, img_size, img_size)
@@ -119,48 +120,7 @@ def test_vit_dense_rope2d() -> None:
     assert y.shape == (batch, max_length, 1)
 
 
-@pytest.mark.skip(reason="Waiting for VIT FIX")
-def test_vit_cls() -> None:
-    # Test params
-    batch = 2
-    channels = 1
-    dim = 12
-    img_size = 224
-    mlp_hidden_dim = 5
-    num_heads = 3
-    patch_size = 14
-    max_length = (img_size // patch_size) ** 2 + 1
-
-    # Create objects
-    patch_emb = SimplePatchEmbedding(
-        patch_size=patch_size, channels=channels, embed_dim=dim
-    )
-
-    pos_emb = LearnedPositionEmbeddings(max_len=max_length, embed_dim=dim)
-
-    head = nn.Sequential(nn.Linear(dim, 1), nn.Sigmoid())
-
-    vit = ViT(
-        num_layers=2,
-        num_heads=num_heads,
-        embed_dim=dim,
-        mlp_hidden_dim=mlp_hidden_dim,
-        qkv_bias=True,
-        patch_embedding=patch_emb,
-        rope=None,
-        position_embedding=pos_emb,
-        use_cls_tok=True,
-        head=head,
-    )
-
-    # Forward pass and check shape
-    x = torch.rand(batch, channels, img_size, img_size)
-    y = vit(x)
-    assert y.shape == (batch, 1)
-
-
-@pytest.mark.skip(reason="Waiting for VIT FIX")
-def test_vit_ae() -> None:
+def test_vit_classifier() -> None:
     # Test params
     batch = 2
     channels = 1
@@ -175,25 +135,54 @@ def test_vit_ae() -> None:
     patch_emb = SimplePatchEmbedding(
         patch_size=patch_size, channels=channels, embed_dim=dim
     )
-
     pos_emb = LearnedPositionEmbeddings(max_len=max_length, embed_dim=dim)
-
-    head = nn.Sequential(nn.Linear(dim, 3), nn.Sigmoid())
+    head = nn.Sequential(nn.Linear(dim, 1), nn.Sigmoid())
 
     vit = ViT(
+        patch_emb,
+        pos_emb,
+        head,
         num_layers=2,
         num_heads=num_heads,
         embed_dim=dim,
         mlp_hidden_dim=mlp_hidden_dim,
-        qkv_bias=True,
-        patch_embedding=patch_emb,
-        rope=None,
-        position_embedding=pos_emb,
-        use_cls_tok=False,
-        head=head,
+        use_cls=True,
     )
 
-    # Forward pass and check shape
     x = torch.rand(batch, channels, img_size, img_size)
     y = vit(x)
-    assert y.shape == (batch, max_length, 3)
+    assert y.shape == (batch, 1)
+
+
+def test_vit_classifier_rope2d() -> None:
+    # Test params
+    batch = 2
+    channels = 1
+    dim = 12
+    img_size = 224
+    mlp_hidden_dim = 5
+    num_heads = 3
+    patch_size = 14
+
+    # Create objects
+    patch_emb = SimplePatchEmbedding(
+        patch_size=patch_size, channels=channels, embed_dim=dim
+    )
+
+    pos_emb = RoPE2D(rotary_dim=dim)
+    head = nn.Sequential(nn.Linear(dim, 1), nn.Sigmoid())
+
+    vit = ViT(
+        patch_emb,
+        pos_emb,
+        head,
+        num_layers=2,
+        num_heads=num_heads,
+        embed_dim=dim,
+        mlp_hidden_dim=mlp_hidden_dim,
+        use_cls=True,
+    )
+
+    x = torch.rand(batch, channels, img_size, img_size)
+    y = vit(x)
+    assert y.shape == (batch, 1)
