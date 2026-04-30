@@ -132,7 +132,7 @@ class ViT(nn.Module):
         qkv_bias: bool = True,
         dropout: float = 0.0,
         attn_dropout: float = 0.0,
-        attn_mask: Tensor | None = None,  # TODO: Implement and register as buffer
+        attn_mask: Tensor | None = None,
     ) -> None:
         """
         Args:
@@ -154,6 +154,10 @@ class ViT(nn.Module):
         """
 
         super().__init__()
+
+        if attn_mask is not None:
+            msg = "attn_mask not yet supported"
+            raise NotImplementedError(msg)  # TODO: IMPLEMENT and register as buffer
 
         if embed_dim % num_heads != 0:
             msg = (
