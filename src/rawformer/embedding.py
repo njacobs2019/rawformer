@@ -26,9 +26,9 @@ class SimplePatchEmbedding(nn.Module):
 
         assert h % self.patch_size == 0, "Height must be divisible by patch_len"
         assert w % self.patch_size == 0, "Width must be divisible by patch_len"
-        grid = (h // self.patch_size, w // self.patch_size)
+        grid_size = (h // self.patch_size, w // self.patch_size)
 
         patches = F.unfold(x, kernel_size=self.patch_size, stride=self.patch_size)
         patches = rearrange(patches, "b dim len -> b len dim")
 
-        return self.fc(patches), grid
+        return self.fc(patches), grid_size
