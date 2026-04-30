@@ -34,6 +34,43 @@ class RoPE1D(nn.Module):
         return sin, cos
 
 
+class RoPE2D(nn.Module):
+    """
+    2D rope implementation where top is y and bottom half is x
+      - X and Y have equal rotary dims
+      - X and Y have separate learnable bases
+    """
+
+    def __init__(self, rotary_dim: int, init_theta: float = 10_000) -> None:
+        super().__init__()
+
+        assert rotary_dim % 4 == 0
+        axis_dim = rotary_dim // 2
+        self.rope_y = RoPE1D(axis_dim, init_theta)
+        self.rope_x = RoPE1D(axis_dim, init_theta)
+
+    def build_cache(
+        self, h: int, w: int
+    ) -> tuple[Float[Tensor, "len rot_dim"], Float[Tensor, "len rot_dim"]]:
+
+        sin_y, cos_y = self.rope_y.build_cache(h)  # (h, axis_dim)
+        sin_x, cos_x = self.rope_x.build_cache(w)  # (w, axis_dim)
+
+        sin_y = sin_y[:, None, :].expand(h, w, -1)
+        cos_y = cos_y[:, None, :].expand(h, w, -1)
+        sin_x = sin_x[None, :, :].expand(h, w, -1)
+        cos_x = cos_x[None, :, :].expand(h, w, -1)
+
+        # combine y|x
+        sin = torch.cat((sin_y, sin_x), dim=-1)  # (h, w, rotary_dim)
+        cos = torch.cat((cos_y, cos_x), dim=-1)  # (h, w, rotary_dim)
+
+        sin = sin.reshape(h * w, -1)
+        cos = cos.reshape(h * w, -1)
+
+        return sin, cos
+
+
 def apply_rope(
     x: Float[Tensor, "b len dim"],
     rope_cache: tuple[Float[Tensor, "len rot_dim"], Float[Tensor, "len rot_dim"]],
