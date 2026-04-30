@@ -8,7 +8,7 @@ from einops import rearrange
 from jaxtyping import Float
 from torch import Tensor, nn
 
-from .rope import RoPE2D, RoPECache, apply_rope
+from .position_encoding import RoPE2D, RoPECache, apply_rope
 
 
 class EncoderBlock(nn.Module):
