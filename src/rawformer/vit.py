@@ -8,6 +8,8 @@ from einops import rearrange
 from jaxtyping import Float
 from torch import Tensor, nn
 
+from .rope import RoPE2D, RoPECache, apply_rope
+
 
 class EncoderBlock(nn.Module):
     def __init__(
@@ -47,17 +49,32 @@ class EncoderBlock(nn.Module):
             nn.Dropout(p=dropout),
         )
 
-    def forward(self, x: Float[Tensor, "b l d"]) -> Float[Tensor, "b l d"]:
+    def forward(
+        self, x: Float[Tensor, "b l d"], rope_cache: RoPECache | None = None
+    ) -> Float[Tensor, "b l d"]:
         # residual block 1
-        x = x + self._mha(self.norm1(x))
+        x = x + self._mha(self.norm1(x), rope_cache)
 
         # residual block 2
         return x + self.mlp(self.norm2(x))
 
-    def _mha(self, x: Float[Tensor, "b l dim"]) -> Float[Tensor, "b l dim"]:
-        Q = rearrange(self.W_q(x), "b l (h d_head) -> b h l d_head", h=self.num_heads)
-        K = rearrange(self.W_k(x), "b l (h d_head) -> b h l d_head", h=self.num_heads)
-        V = rearrange(self.W_v(x), "b l (h d_head) -> b h l d_head", h=self.num_heads)
+    def _mha(
+        self, x: Float[Tensor, "b l dim"], rope_cache: RoPECache | None
+    ) -> Float[Tensor, "b l dim"]:
+        # Linear projection
+        Q = self.W_q(x)  # (b l dim)
+        K = self.W_k(x)  # (b l dim)
+        V = self.W_v(x)  # (b l dim)
+
+        # Optionally rotate
+        if rope_cache is not None:
+            Q = apply_rope(Q, rope_cache)
+            K = apply_rope(K, rope_cache)
+
+        # Rearrange
+        Q = rearrange(Q, "b l (h d_head) -> b h l d_head", h=self.num_heads)
+        K = rearrange(K, "b l (h d_head) -> b h l d_head", h=self.num_heads)
+        V = rearrange(V, "b l (h d_head) -> b h l d_head", h=self.num_heads)
 
         attn_out = F.scaled_dot_product_attention(
             query=Q,
@@ -80,7 +97,7 @@ class ViT(nn.Module):
         mlp_hidden_dim: int,
         qkv_bias: bool,
         patch_embedding: nn.Module,
-        rope: nn.Module | None,  # TODO: Implement
+        rope: RoPE2D | None,  # TODO: Implement
         position_embedding: nn.Module | None,
         use_cls_tok: bool,
         head: nn.Module | None,
@@ -141,15 +158,17 @@ class ViT(nn.Module):
             raise ValueError(msg)
 
         self.patch_embedding = patch_embedding
+
         self.pos_embedding = position_embedding
+        self.rope = rope
 
         self.head = head
         self.cls_tok = (
             nn.Parameter(torch.zeros(1, 1, embed_dim)) if use_cls_tok else None
         )
 
-        self.layers = nn.Sequential(
-            *[
+        self.layers = nn.ModuleList(
+            [
                 EncoderBlock(
                     num_heads=num_heads,
                     head_dim=embed_dim // num_heads,
@@ -167,6 +186,12 @@ class ViT(nn.Module):
         self.norm = nn.LayerNorm(normalized_shape=embed_dim)
 
     def forward(self, x: Float[Tensor, "b c h w"]) -> Tensor:
+        # Get RoPE rot matrices
+        _b, _c, h, w = x.shape
+        rope_cache = None
+        if self.rope is not None:
+            rope_cache = self.rope.build_cache(h, w, dtype=x.dtype)
+
         # Create patch embeddings
         x = self.patch_embedding(x)  # (b, len, embed_dim)
 
@@ -180,7 +205,9 @@ class ViT(nn.Module):
             x = self.pos_embedding(x)  # (b, len, embed_dim)
             x = self.dropout(x)
 
-        x = self.layers(x)
+        for layer in self.layers:
+            x = layer(x, rope_cache)
+
         x = self.norm(x)
 
         # Extract class token

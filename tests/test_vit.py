@@ -53,7 +53,7 @@ def test_encoder_block_mha() -> None:
     )
 
     x = torch.rand(batch, length, dim)
-    out = enc._mha(x)  # noqa
+    out = enc._mha(x, rope_cache=None)  # noqa
     assert out.shape == (batch, length, dim)
 
 
