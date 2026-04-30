@@ -8,6 +8,9 @@ from einops import rearrange
 from jaxtyping import Float
 from torch import Tensor, nn
 
+from .position_encoding import PositionScheme, apply_rope
+from .types import RoPECache, Tokens
+
 
 class EncoderBlock(nn.Module):
     def __init__(
@@ -47,17 +50,32 @@ class EncoderBlock(nn.Module):
             nn.Dropout(p=dropout),
         )
 
-    def forward(self, x: Float[Tensor, "b l d"]) -> Float[Tensor, "b l d"]:
+    def forward(
+        self, x: Float[Tensor, "b l d"], rope_cache: RoPECache | None
+    ) -> Float[Tensor, "b l d"]:
         # residual block 1
-        x = x + self._mha(self.norm1(x))
+        x = x + self._mha(self.norm1(x), rope_cache)
 
         # residual block 2
         return x + self.mlp(self.norm2(x))
 
-    def _mha(self, x: Float[Tensor, "b l dim"]) -> Float[Tensor, "b l dim"]:
-        Q = rearrange(self.W_q(x), "b l (h d_head) -> b h l d_head", h=self.num_heads)
-        K = rearrange(self.W_k(x), "b l (h d_head) -> b h l d_head", h=self.num_heads)
-        V = rearrange(self.W_v(x), "b l (h d_head) -> b h l d_head", h=self.num_heads)
+    def _mha(
+        self, x: Float[Tensor, "b l dim"], rope_cache: RoPECache | None
+    ) -> Float[Tensor, "b l dim"]:
+        # Linear projection
+        Q = self.W_q(x)  # (b l dim)
+        K = self.W_k(x)  # (b l dim)
+        V = self.W_v(x)  # (b l dim)
+
+        # Optionally rotate
+        if rope_cache is not None:
+            Q = apply_rope(Q, rope_cache)
+            K = apply_rope(K, rope_cache)
+
+        # Rearrange
+        Q = rearrange(Q, "b l (h d_head) -> b h l d_head", h=self.num_heads)
+        K = rearrange(K, "b l (h d_head) -> b h l d_head", h=self.num_heads)
+        V = rearrange(V, "b l (h d_head) -> b h l d_head", h=self.num_heads)
 
         attn_out = F.scaled_dot_product_attention(
             query=Q,
@@ -71,68 +89,75 @@ class EncoderBlock(nn.Module):
         return self.mha_dropout(attn_proj)
 
 
+class ClassToken(nn.Module):
+    def __init__(self, embed_dim: int) -> None:
+        super().__init__()
+        self.tok = nn.Parameter(torch.zeros(1, 1, embed_dim))
+
+    def prepend(
+        self,
+        tokens: Float[Tensor, "b l d"],
+        rope_cache: tuple[Float[Tensor, "l rot_dim"], Float[Tensor, "l rot_dim"]]
+        | None,
+    ) -> tuple[
+        Float[Tensor, "b l+1 d"],
+        tuple[Float[Tensor, "l+1 rot_dim"], Float[Tensor, "l+1 rot_dim"]] | None,
+    ]:
+        cls = self.tok.expand(tokens.shape[0], -1, -1)
+        tokens = torch.cat([cls, tokens], dim=1)
+
+        if rope_cache is not None:
+            sin, cos = rope_cache
+            sin = F.pad(sin, (0, 0, 1, 0), value=0.0)
+            cos = F.pad(cos, (0, 0, 1, 0), value=1.0)
+            rope_cache = (sin, cos)
+        return tokens, rope_cache
+
+    def extract(self, tokens: Tokens) -> Float[Tensor, "b dim"]:
+        return tokens[:, 0]
+
+
 class ViT(nn.Module):
     def __init__(
         self,
+        patch_embed: nn.Module,
+        position: PositionScheme,
+        head: nn.Module | None,
+        *,
         num_layers: int,
         num_heads: int,
         embed_dim: int,
         mlp_hidden_dim: int,
-        qkv_bias: bool,
-        patch_embedding: nn.Module,
-        rope: nn.Module | None,  # TODO: Implement
-        position_embedding: nn.Module | None,
-        use_cls_tok: bool,
-        head: nn.Module | None,
+        use_cls: bool,
+        qkv_bias: bool = True,
         dropout: float = 0.0,
         attn_dropout: float = 0.0,
-        attn_mask: Tensor | None = None,  # TODO: Implement and register as buffer
+        attn_mask: Tensor | None = None,
     ) -> None:
-        """Vision Transformer
-
-        Composes a patch embedding, a stack of transformer blocks, a positional
-        scheme (either RoPE applied inside attention, or an additive position
-        embedding on the token sequence), and a head (either a CLS token head
-        or a per-token output head).
-
-        Args:
-            num_layers: Number of transformer blocks in the stack.
-            num_heads: Number of attention heads per block. Must divide `embed_dim`.
-            embed_dim: Width of the residual stream and token embeddings. Per-head
-                dimension is `embed_dim // num_heads`.
-            mlp_hidden_dim: Hidden dimension of the per-block MLP.
-            qkv_bias: Whether the Q/K/V projections include a bias term. Original
-                ViT uses `True`; many modern LLMs use `False`.
-            patch_embedding: Module mapping an input image of shape `(B, C, H, W)`
-                to a token sequence of shape `(B, L, embed_dim)`.
-            rope: Rotary position embedding applied to Q and K inside attention.
-                Mutually exclusive with `position_embedding`.
-            position_embedding: Additive position embedding applied to the token
-                sequence before the transformer stack. Mutually exclusive with
-                `rope`.
-            use_cls_tok: Use a class token (prepend at beginning, extract at end)
-            head: Sub-network that operates on transformer output e.g. (b, len, dim)
-            dropout: Probability of dropout during training
-            attn_dropout: Probability of dropout during training of attention scores
-                Note, used in BERT.
-            attn_mask: Attention mask
-
-        Raises:
-            ValueError: If both or neither of `rope` and `position_embedding` are
-                provided.
-            ValueError: If both or neither of `cls_head` and `out_head` are
-                provided.
         """
+        Args:
+           patch_embed: Parses and embeds img into tokens also returns grid_size
+           position: RoPE2D or LearnedPositionEmbeddings
+           head: Sub-network that operates on transformer output e.g. (b, len, dim)
+
+           num_layers: Number of transformer blocks
+           num_heads: Number of attention heads per block. Must divide `embed_dim`.
+           embed_dim: Width of the residual stream and token embeddings. Per-head
+               dimension is `embed_dim // num_heads`.
+           mlp_hidden_dim: Hidden dimension of the per-block MLP.
+           use_cls: Use class token
+           qkv_bias: Whether the Q/K/V projections include a bias term.
+           dropout: Probability of dropout during training
+           attn_dropout: Probability of dropout during training of attention scores
+               Note, used in BERT.
+           attn_mask: Attention mask
+        """
+
         super().__init__()
 
-        # VALIDATE INPUTS
-        if (rope is None) == (position_embedding is None):
-            msg = (
-                "Provide exactly one of `rope` or `position_embedding` "
-                f"(got rope={rope is not None}, "
-                f"position_embedding={position_embedding is not None})"
-            )
-            raise ValueError(msg)
+        if attn_mask is not None:
+            msg = "attn_mask not yet supported"
+            raise NotImplementedError(msg)  # TODO: IMPLEMENT and register as buffer
 
         if embed_dim % num_heads != 0:
             msg = (
@@ -140,16 +165,13 @@ class ViT(nn.Module):
             )
             raise ValueError(msg)
 
-        self.patch_embedding = patch_embedding
-        self.pos_embedding = position_embedding
-
+        self.patch_embed = patch_embed
+        self.pos_embed = position
         self.head = head
-        self.cls_tok = (
-            nn.Parameter(torch.zeros(1, 1, embed_dim)) if use_cls_tok else None
-        )
+        self.cls_tok = ClassToken(embed_dim=embed_dim) if use_cls else None
 
-        self.layers = nn.Sequential(
-            *[
+        self.layers = nn.ModuleList(
+            [
                 EncoderBlock(
                     num_heads=num_heads,
                     head_dim=embed_dim // num_heads,
@@ -163,71 +185,27 @@ class ViT(nn.Module):
             ]
         )
 
-        self.dropout = nn.Dropout(p=dropout)
         self.norm = nn.LayerNorm(normalized_shape=embed_dim)
 
     def forward(self, x: Float[Tensor, "b c h w"]) -> Tensor:
-        # Create patch embeddings
-        x = self.patch_embedding(x)  # (b, len, embed_dim)
+        # Create and embed patches into tokens
+        x, grid_size = self.patch_embed(x)
 
-        # Prepend class token
+        # Prepare position embeddings
+        x, rope_cache = self.pos_embed.prepare(x, grid_size)
+
         if self.cls_tok is not None:
-            cls_tok = self.cls_tok.expand(x.shape[0], -1, -1)
-            x = torch.cat((cls_tok, x), dim=1)
+            x, rope_cache = self.cls_tok.prepend(x, rope_cache)
 
-        # Position embedding
-        if self.pos_embedding is not None:
-            x = self.pos_embedding(x)  # (b, len, embed_dim)
-            x = self.dropout(x)
+        for layer in self.layers:
+            x = layer(x, rope_cache)
 
-        x = self.layers(x)
         x = self.norm(x)
 
-        # Extract class token
         if self.cls_tok is not None:
-            x = x[:, 0, :]
+            x = self.cls_tok.extract(x)
 
-        # Run output head
         if self.head is not None:
             x = self.head(x)
 
         return x
-
-
-class SimplePatchEmbedding(nn.Module):
-    """
-    Creates non-overlapping patches and linearly embeds them
-    """
-
-    def __init__(self, patch_len: int, channels: int, embed_dim: int) -> None:
-        super().__init__()
-
-        self.patch_len = patch_len
-        self.fc = nn.Linear(patch_len * patch_len * channels, embed_dim)
-
-    def forward(self, x: Float[Tensor, "b c h w"]) -> Float[Tensor, "b len embed_dim"]:
-        _b, _c, h, w = x.shape
-
-        assert h % self.patch_len == 0, "Height must be divisible by patch_len"
-        assert w % self.patch_len == 0, "Width must be divisible by patch_len"
-
-        tokens = F.unfold(x, kernel_size=self.patch_len, stride=self.patch_len)
-        tokens = rearrange(tokens, "b dim len -> b len dim")
-
-        return self.fc(tokens)
-
-
-class LearnedPositionEmbeddings(nn.Module):
-    def __init__(self, max_len: int, embed_dim: int) -> None:
-        super().__init__()
-
-        self.max_len = max_len
-        self.E = nn.Parameter(
-            torch.normal(mean=0.0, std=0.02, size=(1, max_len, embed_dim))
-        )  # Same as ViT and BERT
-
-    def forward(self, x: Float[Tensor, "b l d"]) -> Float[Tensor, "b l d"]:
-        length = x.shape[1]
-        assert length <= self.max_len
-
-        return x + self.E[:, :length, :]

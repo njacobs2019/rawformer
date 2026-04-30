@@ -13,4 +13,4 @@ lint:
 
 	@echo ""
 	@echo "TESTING"
-	pytest
+	pytest -s
