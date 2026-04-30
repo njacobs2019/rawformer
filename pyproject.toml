@@ -1,6 +1,6 @@
 [project]
 name = "rawformer"
-version = "0.1.0"
+version = "0.1.1"
 description = "Transformers from scratch"
 readme = "README.md"
 
@@ -8,12 +8,13 @@ authors = [
     { name = "Nicholas Jacobs", email = "59352054+njacobs2019@users.noreply.github.com" }
 ]
 
-requires-python = ">=3.14,<3.15"
+requires-python = ">=3.12"
 
 dependencies = [
     "beartype>=0.22.9",
     "einops>=0.8.2",
     "jaxtyping>=0.3.9",
+    "torch>=2.9,<3"
 ]
 
 [dependency-groups]
@@ -27,8 +28,8 @@ dev = [
 ]
 
 [project.optional-dependencies]
-cpu = ["torch~=2.11.0"]
-cuda = ["torch~=2.11.0"]
+cpu = ["torch>=2.9,<3"]
+cuda = ["torch>=2.9,<3"]
 
 [tool.uv]
 conflicts = [[
