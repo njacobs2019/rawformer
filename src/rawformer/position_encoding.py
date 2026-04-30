@@ -9,31 +9,37 @@ from jaxtyping import Float
 from torch import Tensor, nn
 
 RoPECache = tuple[Float[Tensor, "len rot_dim"], Float[Tensor, "len rot_dim"]]
+Tokens = Float[Tensor, "b l d"]
 
 
 class PositionScheme(Protocol):
     def apply_to_tokens(
         self,
-        tokens: Float[Tensor, "b l d"],
+        tokens: Tokens,
         spatial_shape: tuple[int, ...],
-        dtype: torch.dtype,
-    ) -> tuple[Float[Tensor, "b l d"], RoPECache | None]: ...
+    ) -> tuple[Tokens, RoPECache | None]: ...
 
 
 class LearnedPositionEmbeddings(nn.Module):
-    def __init__(self, max_len: int, embed_dim: int) -> None:
+    def __init__(self, max_len: int, embed_dim: int, dropout: float = 0.0) -> None:
         super().__init__()
 
         self.max_len = max_len
         self.E = nn.Parameter(
             torch.normal(mean=0.0, std=0.02, size=(1, max_len, embed_dim))
         )  # Same as ViT and BERT
+        self.dropout = nn.Dropout(p=dropout)
 
-    def forward(self, x: Float[Tensor, "b l d"]) -> Float[Tensor, "b l d"]:
+    def forward(self, x: Tokens) -> Tokens:
         length = x.shape[1]
         assert length <= self.max_len
 
-        return x + self.E[:, :length, :]
+        return self.dropout(x + self.E[:, :length, :])
+
+    def prepare(
+        self, x: Tokens, _spatial_shape: tuple[int, ...]
+    ) -> tuple[Tokens, None]:
+        return self(x), None
 
 
 class RoPE1D(nn.Module):
@@ -76,7 +82,7 @@ class RoPE2D(nn.Module):
       - X and Y have separate learnable bases
     """
 
-    def __init__(self, rotary_dim: int, init_theta: float = 10_000) -> None:
+    def __init__(self, rotary_dim: int, init_theta: float = 10_000.0) -> None:
         super().__init__()
 
         assert rotary_dim % 4 == 0
@@ -105,11 +111,18 @@ class RoPE2D(nn.Module):
 
         return sin, cos
 
+    def prepare(
+        self, x: Tokens, spatial_shape: tuple[int, ...]
+    ) -> tuple[Tokens, RoPECache]:
+        h, w = spatial_shape
+        dtype = x.dtype
+        return x, self.build_cache(h, w, dtype)
+
 
 def apply_rope(
-    x: Float[Tensor, "b len dim"],
+    x: Tokens,
     rope_cache: RoPECache,
-) -> Float[Tensor, "b len dim"]:
+) -> Tokens:
     # Uses efficient 2D rotation implementation from RoFormer paper eqn 34
 
     # Unpack input and validate

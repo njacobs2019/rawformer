@@ -48,7 +48,7 @@ def test_encoder_block() -> None:
     )
 
     x = torch.rand(batch, length, dim)
-    out = enc(x)
+    out = enc(x, rope_cache=None)
     assert out.shape == (batch, length, dim)
 
 
