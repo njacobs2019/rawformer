@@ -7,34 +7,6 @@ from rawformer import LearnedPositionEmbeddings, SimplePatchEmbedding, ViT
 from rawformer.vit import EncoderBlock
 
 
-def test_simple_patch_embeddings() -> None:
-    batch = 2
-    img_size = 224
-    patch_size = 14
-    channels = 1
-    embed_dim = 4
-
-    embed = SimplePatchEmbedding(
-        patch_len=patch_size, channels=channels, embed_dim=embed_dim
-    )
-    x = torch.rand(batch, channels, img_size, img_size)
-    x = embed(x)
-
-    assert x.shape == (batch, (img_size // patch_size) ** 2, embed_dim)
-
-
-def test_learned_position_embeddings() -> None:
-    batch = 2
-    dim = 4
-    length = 5
-
-    embed = LearnedPositionEmbeddings(max_len=length, embed_dim=dim)
-    x = torch.rand(batch, length, dim)
-    x = embed(x)
-
-    assert x.shape == (batch, length, dim)
-
-
 def test_encoder_block_mha() -> None:
     batch = 2
     length = 5

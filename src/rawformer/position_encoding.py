@@ -1,3 +1,7 @@
+"""
+Handles positional encoding
+"""
+
 from typing import Protocol
 
 import torch
@@ -14,6 +18,22 @@ class PositionScheme(Protocol):
         spatial_shape: tuple[int, ...],
         dtype: torch.dtype,
     ) -> tuple[Float[Tensor, "b l d"], RoPECache | None]: ...
+
+
+class LearnedPositionEmbeddings(nn.Module):
+    def __init__(self, max_len: int, embed_dim: int) -> None:
+        super().__init__()
+
+        self.max_len = max_len
+        self.E = nn.Parameter(
+            torch.normal(mean=0.0, std=0.02, size=(1, max_len, embed_dim))
+        )  # Same as ViT and BERT
+
+    def forward(self, x: Float[Tensor, "b l d"]) -> Float[Tensor, "b l d"]:
+        length = x.shape[1]
+        assert length <= self.max_len
+
+        return x + self.E[:, :length, :]
 
 
 class RoPE1D(nn.Module):
