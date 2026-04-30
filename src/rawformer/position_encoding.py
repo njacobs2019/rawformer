@@ -2,7 +2,7 @@
 Handles positional encoding
 """
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 import torch
 from jaxtyping import Float
@@ -12,10 +12,11 @@ RoPECache = tuple[Float[Tensor, "len rot_dim"], Float[Tensor, "len rot_dim"]]
 Tokens = Float[Tensor, "b l d"]
 
 
+@runtime_checkable
 class PositionScheme(Protocol):
-    def apply_to_tokens(
+    def prepare(
         self,
-        tokens: Tokens,
+        x: Tokens,
         spatial_shape: tuple[int, ...],
     ) -> tuple[Tokens, RoPECache | None]: ...
 
@@ -37,7 +38,9 @@ class LearnedPositionEmbeddings(nn.Module):
         return self.dropout(x + self.E[:, :length, :])
 
     def prepare(
-        self, x: Tokens, _spatial_shape: tuple[int, ...]
+        self,
+        x: Tokens,
+        spatial_shape: tuple[int, ...],  # noqa: ARG002
     ) -> tuple[Tokens, None]:
         return self(x), None
 

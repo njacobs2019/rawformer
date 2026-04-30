@@ -8,7 +8,7 @@ from einops import rearrange
 from jaxtyping import Float
 from torch import Tensor, nn
 
-from .position_encoding import RoPE2D, RoPECache, apply_rope
+from .position_encoding import PositionScheme, RoPE2D, RoPECache, apply_rope
 
 
 class EncoderBlock(nn.Module):
@@ -50,7 +50,7 @@ class EncoderBlock(nn.Module):
         )
 
     def forward(
-        self, x: Float[Tensor, "b l d"], rope_cache: RoPECache | None = None
+        self, x: Float[Tensor, "b l d"], rope_cache: RoPECache | None
     ) -> Float[Tensor, "b l d"]:
         # residual block 1
         x = x + self._mha(self.norm1(x), rope_cache)
@@ -86,6 +86,81 @@ class EncoderBlock(nn.Module):
         attn_out = rearrange(attn_out, "b h l d_head -> b l (h d_head)")
         attn_proj = self.mha_out_proj(attn_out)
         return self.mha_dropout(attn_proj)
+
+
+class ViTDense(nn.Module):
+    def __init__(
+        self,
+        patch_embed: nn.Module,
+        position: PositionScheme,
+        head: nn.Module | None,
+        *,
+        num_layers: int,
+        num_heads: int,
+        embed_dim: int,
+        mlp_hidden_dim: int,
+        qkv_bias: bool = True,
+        dropout: float = 0.0,
+        attn_dropout: float = 0.0,
+        attn_mask: Tensor | None = None,  # TODO: Implement and register as buffer
+    ) -> None:
+        """
+        Args:
+           patch_embed: Parses and embeds img into tokens also returns grid_size
+           position: RoPE2D or LearnedPositionEmbeddings
+           head: Sub-network that operates on transformer output e.g. (b, len, dim)
+
+           num_layers: Number of transformer blocks
+           num_heads: Number of attention heads per block. Must divide `embed_dim`.
+           embed_dim: Width of the residual stream and token embeddings. Per-head
+               dimension is `embed_dim // num_heads`.
+           mlp_hidden_dim: Hidden dimension of the per-block MLP.
+           qkv_bias: Whether the Q/K/V projections include a bias term.
+           dropout: Probability of dropout during training
+           attn_dropout: Probability of dropout during training of attention scores
+               Note, used in BERT.
+           attn_mask: Attention mask
+        """
+
+        super().__init__()
+
+        self.patch_embed = patch_embed
+        self.pos_embed = position
+        self.head = head
+
+        self.layers = nn.ModuleList(
+            [
+                EncoderBlock(
+                    num_heads=num_heads,
+                    head_dim=embed_dim // num_heads,
+                    qkv_bias=qkv_bias,
+                    mlp_hidden_dim=mlp_hidden_dim,
+                    dropout=dropout,
+                    attn_dropout=attn_dropout,
+                    attn_mask=attn_mask,
+                )
+                for _ in range(num_layers)
+            ]
+        )
+
+        self.norm = nn.LayerNorm(normalized_shape=embed_dim)
+
+    def forward(self, x: Float[Tensor, "b c h w"]) -> Tensor:
+        # Create and embed patches into tokens
+        x, grid_size = self.patch_embed(x)
+
+        # Prepare position embeddings
+        x, rope_cache = self.pos_embed.prepare(x, grid_size)
+
+        for layer in self.layers:
+            x = layer(x, rope_cache)
+
+        x = self.norm(x)
+
+        if self.head is not None:
+            x = self.head(x)
+
+        return x
 
 
 class ViT(nn.Module):

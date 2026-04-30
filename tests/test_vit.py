@@ -5,7 +5,7 @@ import torch
 from torch import nn
 
 from rawformer import LearnedPositionEmbeddings, SimplePatchEmbedding
-from rawformer.vit import EncoderBlock, ViT
+from rawformer.vit import EncoderBlock, ViT, ViTDense
 
 
 def test_encoder_block_mha() -> None:
@@ -50,6 +50,39 @@ def test_encoder_block() -> None:
     x = torch.rand(batch, length, dim)
     out = enc(x, rope_cache=None)
     assert out.shape == (batch, length, dim)
+
+
+def test_vit_dense() -> None:
+    # Test params
+    batch = 2
+    channels = 1
+    dim = 12
+    img_size = 224
+    mlp_hidden_dim = 5
+    num_heads = 3
+    patch_size = 14
+    max_length = (img_size // patch_size) ** 2
+
+    # Create objects
+    patch_emb = SimplePatchEmbedding(
+        patch_size=patch_size, channels=channels, embed_dim=dim
+    )
+    pos_emb = LearnedPositionEmbeddings(max_len=max_length, embed_dim=dim)
+    head = nn.Sequential(nn.Linear(dim, 1), nn.Sigmoid())
+
+    vit = ViTDense(
+        patch_emb,
+        pos_emb,
+        head,
+        num_layers=2,
+        num_heads=num_heads,
+        embed_dim=dim,
+        mlp_hidden_dim=mlp_hidden_dim,
+    )
+
+    x = torch.rand(batch, channels, img_size, img_size)
+    y = vit(x)
+    assert y.shape == (batch, max_length, 1)
 
 
 @pytest.mark.skip(reason="Waiting for VIT FIX")
