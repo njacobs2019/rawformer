@@ -3,8 +3,8 @@
 import torch
 from torch import nn
 
-from rawformer import LearnedPositionEmbeddings, RoPE2D, SimplePatchEmbedding
-from rawformer.vit import EncoderBlock, ViT
+from rawformer import LearnedPositionEmbeddings, RoPE2D, SimplePatchEmbedding, ViT
+from rawformer.vit import EncoderBlock
 
 
 def test_encoder_block_mha() -> None:
