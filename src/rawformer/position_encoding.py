@@ -5,6 +5,7 @@ Handles positional encoding
 from typing import Protocol, runtime_checkable
 
 import torch
+from einops import rearrange
 from torch import nn
 
 from .types import RoPECache, Tokens
@@ -113,11 +114,54 @@ class RoPE2D(nn.Module):
         return sin, cos
 
     def prepare(
-        self, x: Tokens, spatial_shape: tuple[int, ...]
+        self, x: Tokens, spatial_shape: tuple[int, int]
     ) -> tuple[Tokens, RoPECache]:
-        h, w = spatial_shape
-        dtype = x.dtype
-        return x, self.build_cache(h, w, dtype)
+        return x, self.build_cache(*spatial_shape, dtype=x.dtype)
+
+
+class RoPE3D(nn.Module):
+    """
+    3D rope implementation
+    Ordered y (top third) | x (middle third) | channel (bottom third)
+    """
+
+    def __init__(self, rotary_dim: int, init_theta: float = 10_000.0) -> None:
+        super().__init__()
+
+        assert rotary_dim % 6 == 0
+        axis_dim = rotary_dim // 3
+        self.rope_y = RoPE1D(axis_dim, init_theta)
+        self.rope_x = RoPE1D(axis_dim, init_theta)
+        self.rope_c = RoPE1D(axis_dim, init_theta)
+
+    def build_cache(
+        self, c: int, h: int, w: int, dtype: torch.dtype | None = None
+    ) -> RoPECache:
+        sin_y, cos_y = self.rope_y.build_cache(h, dtype)  # (h, axis_dim)
+        sin_x, cos_x = self.rope_x.build_cache(w, dtype)  # (w, axis_dim)
+        sin_c, cos_c = self.rope_c.build_cache(c, dtype)  # (c, axis_dim)
+
+        # Expand dims
+        sin_y = sin_y[None, :, None, :].expand(c, h, w, -1)
+        cos_y = cos_y[None, :, None, :].expand(c, h, w, -1)
+        sin_x = sin_x[None, None, :, :].expand(c, h, w, -1)
+        cos_x = cos_x[None, None, :, :].expand(c, h, w, -1)
+        sin_c = sin_c[:, None, None, :].expand(c, h, w, -1)
+        cos_c = cos_c[:, None, None, :].expand(c, h, w, -1)
+
+        # combine y|x|c
+        sin = torch.cat((sin_y, sin_x, sin_c), dim=-1)  # (c, h, w, rotary_dim)
+        cos = torch.cat((cos_y, cos_x, cos_c), dim=-1)  # (c, h, w, rotary_dim)
+
+        sin = rearrange(sin, "c h w dim -> (c h w) dim")
+        cos = rearrange(cos, "c h w dim -> (c h w) dim")
+
+        return sin, cos
+
+    def prepare(
+        self, x: Tokens, spatial_shape: tuple[int, int, int]
+    ) -> tuple[Tokens, RoPECache]:
+        return x, self.build_cache(*spatial_shape, x.dtype)
 
 
 def apply_rope(

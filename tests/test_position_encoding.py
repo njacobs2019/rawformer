@@ -1,6 +1,6 @@
 import torch
 
-from rawformer import LearnedPositionEmbeddings, RoPE2D
+from rawformer import LearnedPositionEmbeddings, RoPE2D, RoPE3D
 from rawformer.position_encoding import apply_rope
 
 
@@ -29,6 +29,24 @@ def test_2d_rope_embeddings() -> None:
 
     x = torch.ones(batch, length, dim)
     x, cache = rope.prepare(x, (h, w))
+    y = apply_rope(x, cache)
+
+    assert cache[0].shape == (length, dim)
+    assert y.shape == x.shape
+
+
+def test_3d_rope_embeddings() -> None:
+    batch = 2
+    h = 5
+    w = 7
+    c = 3
+    dim = 12
+
+    length = h * w * c
+    rope = RoPE3D(rotary_dim=dim)
+
+    x = torch.ones(batch, length, dim)
+    x, cache = rope.prepare(x, (c, h, w))
     y = apply_rope(x, cache)
 
     assert cache[0].shape == (length, dim)

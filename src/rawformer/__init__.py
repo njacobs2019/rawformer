@@ -8,12 +8,13 @@ if os.environ.get("BEARTYPE", "1") not in ("0", "false", "no"):
     install_import_hook("rawformer", "beartype.beartype")
 
 from .embedding import SimplePatchEmbedding
-from .position_encoding import LearnedPositionEmbeddings, RoPE2D
+from .position_encoding import LearnedPositionEmbeddings, RoPE2D, RoPE3D
 from .vit import ViT
 
 __all__ = [
     "LearnedPositionEmbeddings",
     "RoPE2D",
+    "RoPE3D",
     "SimplePatchEmbedding",
     "ViT",
 ]
