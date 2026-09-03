@@ -1,6 +1,6 @@
 import os
 
-if os.environ.get("BEARTYPE", "1") not in ("0", "false", "no"):
+if os.environ.get("BEARTYPE", "0").lower() in ("1", "true", "yes", "on"):
     print("BEARTYPE is ON")
 
     from jaxtyping import install_import_hook
