@@ -2,7 +2,8 @@
 Handles positional encoding
 """
 
-from typing import Protocol, runtime_checkable
+from collections.abc import Sequence
+from typing import Protocol, cast, runtime_checkable
 
 import torch
 from jaxtyping import Float
@@ -107,7 +108,7 @@ class AxialRoPE(nn.Module):
         self,
         rotary_dim: int,
         n_axes: int,
-        init_theta: float = 10_000.0,
+        init_theta: Sequence[float] | float = 10_000.0,  # (channel, height, width)
         *,
         learnable: bool = False,
     ) -> None:
@@ -121,11 +122,25 @@ class AxialRoPE(nn.Module):
         self.rotary_dim = rotary_dim
         self.n_axes = n_axes
 
-        self.axes: list[RoPE1D] = [
-            RoPE1D(rotary_dim // n_axes, init_theta, learnable=learnable)
-            for _ in range(n_axes)
-        ]
-        self._axes_module_list = nn.ModuleList(self.axes)  # registration only
+        init_thetas: tuple[float, ...]
+        if isinstance(init_theta, Sequence):
+            init_thetas = tuple(init_theta)
+        else:
+            init_thetas = (init_theta,) * n_axes
+
+        if len(init_thetas) != n_axes:
+            msg = (
+                f"Cannot initialize {len(init_thetas)} base frequencies "
+                f"for {n_axes} axes"
+            )
+            raise ValueError(msg)
+
+        self.axes = nn.ModuleList(
+            [
+                RoPE1D(rotary_dim // n_axes, theta, learnable=learnable)
+                for theta in init_thetas
+            ]
+        )
 
     def build_cache(
         self, spatial_shape: tuple[int, ...], dtype: torch.dtype
@@ -139,7 +154,8 @@ class AxialRoPE(nn.Module):
 
         sins: list[Tensor] = []
         coss: list[Tensor] = []
-        for k, (rope, extent) in enumerate(zip(self.axes, spatial_shape, strict=True)):
+        axes = cast(list[RoPE1D], list(self.axes))
+        for k, (rope, extent) in enumerate(zip(axes, spatial_shape, strict=True)):
             sin_k, cos_k = rope.build_cache(extent, dtype=dtype)  # (extent, axis_dim)
 
             # broadcast axis k across the full grid
