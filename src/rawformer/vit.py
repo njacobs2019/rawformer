@@ -100,8 +100,8 @@ class ClassToken(nn.Module):
         Float[Tensor, "b l+1 d"],
         tuple[Float[Tensor, "l+1 rot_dim"], Float[Tensor, "l+1 rot_dim"]] | None,
     ]:
-        cls = self.tok.expand(tokens.shape[0], -1, -1)
-        tokens = torch.cat([cls, tokens], dim=1)
+        cls_tok = self.tok.expand(tokens.shape[0], -1, -1)
+        tokens = torch.cat([cls_tok, tokens], dim=1)
 
         if rope_cache is not None:
             sin, cos = rope_cache
@@ -150,6 +150,7 @@ class ViT(nn.Module):
         super().__init__()
 
         embed_dim = num_heads * head_dim
+        self._validate(patch_embed, position, num_heads, head_dim)
 
         self.patch_embed = patch_embed
         self.pos_embed = position
@@ -171,6 +172,75 @@ class ViT(nn.Module):
         )
 
         self.norm = nn.LayerNorm(normalized_shape=embed_dim)
+
+    @staticmethod
+    def _validate(
+        patch_embed: nn.Module,
+        position: PositionScheme,
+        num_heads: int,
+        head_dim: int,
+    ) -> None:
+        """Reject mismatched components at construction rather than at first forward.
+
+        Each check is skipped when the component doesn't advertise the attribute, so
+        custom patch embeddings and position schemes keep working.
+        """
+        embed_dim = num_heads * head_dim
+
+        patch_dim = getattr(patch_embed, "embed_dim", None)
+        if patch_dim is not None and patch_dim != embed_dim:
+            msg = (
+                f"patch_embed produces {patch_dim}-dim tokens but this ViT is built "
+                f"for num_heads * head_dim = {num_heads} * {head_dim} = {embed_dim}"
+            )
+            raise ValueError(msg)
+
+        rotary_dim = getattr(position, "rotary_dim", None)
+        if rotary_dim is not None and rotary_dim > head_dim:
+            msg = (
+                f"rotary_dim {rotary_dim} exceeds head_dim {head_dim}. RoPE is "
+                f"applied per head, so rotary_dim must be <= head_dim -- note this "
+                f"is head_dim, not embed_dim ({embed_dim})."
+            )
+            raise ValueError(msg)
+
+        n_axes = getattr(position, "n_axes", None)
+        grid_rank = getattr(patch_embed, "grid_rank", None)
+        if n_axes is not None and grid_rank is not None and n_axes != grid_rank:
+            msg = (
+                f"position scheme expects n_axes={n_axes} but patch_embed produces "
+                f"a {grid_rank}D grid"
+            )
+            raise ValueError(msg)
+
+    def no_weight_decay(self) -> set[str]:
+        """Parameter names that must be excluded from weight decay.
+
+        Covers the class token and every parameter of the position scheme (learned
+        tables, and a learnable RoPE base if one was opted into). A learnable
+        ``log_base`` gets almost no gradient signal but full weight decay, which
+        drags it toward 0 and collapses every rotary frequency to ~1.0, silently
+        destroying positional resolution. ``cls_tok.tok`` and the learned table are
+        both ndim-3, so the common ``p.ndim >= 2 -> decay`` rule catches them too.
+
+        Usage::
+
+            skip = model.no_weight_decay()
+            params = list(model.named_parameters())
+            optim = torch.optim.AdamW(
+                [
+                    {"params": [p for n, p in params if n not in skip],
+                     "weight_decay": 0.05},
+                    {"params": [p for n, p in params if n in skip],
+                     "weight_decay": 0.0},
+                ],
+                lr=1e-3,
+            )
+        """
+        names = {n for n, _ in self.named_parameters() if n.startswith("pos_embed.")}
+        if self.cls_tok is not None:
+            names.add("cls_tok.tok")
+        return names
 
     def forward(self, x: Float[Tensor, "b c h w"]) -> Tensor:
         # Create and embed patches into tokens

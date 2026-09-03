@@ -32,7 +32,9 @@ class LearnedPositionEmbeddings(nn.Module):
 
     def forward(self, x: Tokens) -> Tokens:
         length = x.shape[1]
-        assert length <= self.max_len
+        if length > self.max_len:
+            msg = f"sequence length {length} exceeds max_len {self.max_len}. "
+            raise ValueError(msg)
 
         return self.dropout(x + self.E[:, :length, :])
 
@@ -45,16 +47,37 @@ class LearnedPositionEmbeddings(nn.Module):
 
 
 class RoPE1D(nn.Module):
-    """1D RoPE implementation"""
+    """1D RoPE implementation
 
-    def __init__(self, rotary_dim: int, init_theta: float = 10_000) -> None:
+    The rotary base is stored in log space. It is a **buffer by default**: the base
+    receives almost no gradient signal, but as a parameter it is fully exposed to
+    weight decay, which drives ``log_base`` toward 0 and collapses every rotary
+    frequency to ~1.0 -- silently destroying positional resolution over a long run.
+    Pass ``learnable=True`` to opt in, and exclude it from weight decay if you do
+    (see :meth:`rawformer.ViT.no_weight_decay`).
+    """
+
+    log_base: Tensor
+
+    def __init__(
+        self,
+        rotary_dim: int,
+        init_theta: float = 10_000,
+        *,
+        learnable: bool = False,
+    ) -> None:
         super().__init__()
 
-        assert rotary_dim % 2 == 0
+        if rotary_dim % 2 != 0:
+            msg = f"rotary_dim must be even, got {rotary_dim}"
+            raise ValueError(msg)
         self.rotary_dim = rotary_dim
 
-        init_base_theta = torch.tensor(init_theta, dtype=torch.float32)
-        self.log_base = nn.Parameter(init_base_theta.log())
+        log_theta = torch.tensor(init_theta, dtype=torch.float32).log()
+        if learnable:
+            self.log_base = nn.Parameter(log_theta)
+        else:
+            self.register_buffer("log_base", log_theta)
 
     def build_cache(self, length: int, dtype: torch.dtype) -> RoPECache:
         # Builds the `rotation matrix`
@@ -68,14 +91,10 @@ class RoPE1D(nn.Module):
             positions = torch.arange(length, device=device, dtype=torch.float32)
             freqs = torch.outer(positions, theta)  # (length, half_dim)
 
-            sin = freqs.sin().repeat_interleave(2, dim=-1)  # (length, half_dim)
-            cos = freqs.cos().repeat_interleave(2, dim=-1)  # (length, half_dim)
+            sin = freqs.sin().repeat_interleave(2, dim=-1)  # (length, rotary_dim)
+            cos = freqs.cos().repeat_interleave(2, dim=-1)  # (length, rotary_dim)
 
-            if dtype is not None:
-                sin = sin.to(dtype)
-                cos = cos.to(dtype)
-
-        return sin, cos
+        return sin.to(dtype), cos.to(dtype)
 
 
 class AxialRoPE(nn.Module):
@@ -85,25 +104,38 @@ class AxialRoPE(nn.Module):
     """
 
     def __init__(
-        self, rotary_dim: int, n_axes: int, init_theta: float = 10_000.0
+        self,
+        rotary_dim: int,
+        n_axes: int,
+        init_theta: float = 10_000.0,
+        *,
+        learnable: bool = False,
     ) -> None:
         super().__init__()
-        assert rotary_dim % (2 * n_axes) == 0, (
-            f"rotary_dim {rotary_dim} must be divisible by {2 * n_axes} "
-            f"so each axis gets an even number of dimensions"
-        )
+        if rotary_dim % (2 * n_axes) != 0:
+            msg = (
+                f"rotary_dim {rotary_dim} must be divisible by {2 * n_axes} "
+                f"so each of the {n_axes} axes gets an even number of dimensions"
+            )
+            raise ValueError(msg)
         self.rotary_dim = rotary_dim
         self.n_axes = n_axes
 
         self.axes: list[RoPE1D] = [
-            RoPE1D(rotary_dim // n_axes, init_theta) for _ in range(n_axes)
+            RoPE1D(rotary_dim // n_axes, init_theta, learnable=learnable)
+            for _ in range(n_axes)
         ]
         self._axes_module_list = nn.ModuleList(self.axes)  # registration only
 
     def build_cache(
         self, spatial_shape: tuple[int, ...], dtype: torch.dtype
     ) -> RoPECache:
-        assert len(spatial_shape) == self.n_axes
+        if len(spatial_shape) != self.n_axes:
+            msg = (
+                f"spatial_shape {spatial_shape} has {len(spatial_shape)} axes but "
+                f"this AxialRoPE was built for n_axes={self.n_axes}"
+            )
+            raise ValueError(msg)
 
         sins: list[Tensor] = []
         coss: list[Tensor] = []
