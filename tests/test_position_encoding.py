@@ -1,6 +1,6 @@
 import torch
 
-from rawformer import LearnedPositionEmbeddings, RoPE2D, RoPE3D
+from rawformer import AxialRoPE, LearnedPositionEmbeddings
 from rawformer.position_encoding import apply_rope
 
 
@@ -19,35 +19,38 @@ def test_learned_position_embeddings() -> None:
 
 
 def test_2d_rope_embeddings() -> None:
-    batch = 2
-    h = 3
-    w = 3
-    dim = 8
-
+    batch, h, w = 2, 3, 3
+    num_heads, head_dim, rot_dim = 2, 9, 8
     length = h * w
-    rope = RoPE2D(rotary_dim=8)
+    embed_dim = num_heads * head_dim
 
-    x = torch.ones(batch, length, dim)
-    x, cache = rope.prepare(x, (h, w))
-    y = apply_rope(x, cache)
+    rope = AxialRoPE(rotary_dim=rot_dim, n_axes=2)
 
-    assert cache[0].shape == (length, dim)
-    assert y.shape == x.shape
+    tokens = torch.ones(batch, length, embed_dim)
+    tokens, cache = rope.prepare(tokens, (h, w))
+
+    sin, _cos = cache
+    assert sin.shape == (length, rot_dim)
+
+    q = torch.ones(batch, num_heads, length, head_dim)
+    q_rot = apply_rope(q, cache)
+    assert q_rot.shape == q.shape
 
 
 def test_3d_rope_embeddings() -> None:
-    batch = 2
-    h = 5
-    w = 7
-    c = 3
-    dim = 12
+    batch, c, h, w = 2, 3, 5, 7
+    num_heads, head_dim, rot_dim = 2, 13, 12
+    length = c * h * w
+    embed_dim = num_heads * head_dim
 
-    length = h * w * c
-    rope = RoPE3D(rotary_dim=dim)
+    rope = AxialRoPE(rotary_dim=rot_dim, n_axes=3)
 
-    x = torch.ones(batch, length, dim)
-    x, cache = rope.prepare(x, (c, h, w))
-    y = apply_rope(x, cache)
+    tokens = torch.ones(batch, length, embed_dim)
+    tokens, cache = rope.prepare(tokens, (c, h, w))
 
-    assert cache[0].shape == (length, dim)
-    assert y.shape == x.shape
+    sin, _cos = cache
+    assert sin.shape == (length, rot_dim)
+
+    q = torch.ones(batch, num_heads, length, head_dim)
+    q_rot = apply_rope(q, cache)
+    assert q_rot.shape == q.shape

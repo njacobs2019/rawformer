@@ -3,7 +3,7 @@
 import torch
 from torch import nn
 
-from rawformer import LearnedPositionEmbeddings, RoPE2D, SimplePatchEmbedding, ViT
+from rawformer import AxialRoPE, LearnedPositionEmbeddings, SimplePatchEmbedding, ViT
 from rawformer.vit import EncoderBlock
 
 
@@ -21,7 +21,6 @@ def test_encoder_block_mha() -> None:
         mlp_hidden_dim=6,
         dropout=0.0,
         attn_dropout=0.0,
-        attn_mask=None,
     )
 
     x = torch.rand(batch, length, dim)
@@ -43,7 +42,6 @@ def test_encoder_block() -> None:
         mlp_hidden_dim=6,
         dropout=0.0,
         attn_dropout=0.0,
-        attn_mask=None,
     )
 
     x = torch.rand(batch, length, dim)
@@ -55,19 +53,21 @@ def test_vit_dense() -> None:
     # Test params
     batch = 2
     channels = 1
-    dim = 12
     img_size = 224
     mlp_hidden_dim = 5
     num_heads = 3
+    head_dim = 4
     patch_size = 14
+
     max_length = (img_size // patch_size) ** 2
+    embed_dim = num_heads * head_dim
 
     # Create objects
     patch_emb = SimplePatchEmbedding(
-        patch_size=patch_size, channels=channels, embed_dim=dim
+        patch_size=patch_size, channels=channels, embed_dim=embed_dim
     )
-    pos_emb = LearnedPositionEmbeddings(max_len=max_length, embed_dim=dim)
-    head = nn.Sequential(nn.Linear(dim, 1), nn.Sigmoid())
+    pos_emb = LearnedPositionEmbeddings(max_len=max_length, embed_dim=embed_dim)
+    head = nn.Sequential(nn.Linear(embed_dim, 1), nn.Sigmoid())
 
     vit = ViT(
         patch_emb,
@@ -75,7 +75,7 @@ def test_vit_dense() -> None:
         head,
         num_layers=2,
         num_heads=num_heads,
-        embed_dim=dim,
+        head_dim=head_dim,
         mlp_hidden_dim=mlp_hidden_dim,
         use_cls=False,
     )
@@ -89,20 +89,22 @@ def test_vit_dense_rope2d() -> None:
     # Test params
     batch = 2
     channels = 1
-    dim = 12
     img_size = 224
     mlp_hidden_dim = 5
     num_heads = 3
+    head_dim = 4
     patch_size = 14
+
     max_length = (img_size // patch_size) ** 2
+    embed_dim = num_heads * head_dim
 
     # Create objects
     patch_emb = SimplePatchEmbedding(
-        patch_size=patch_size, channels=channels, embed_dim=dim
+        patch_size=patch_size, channels=channels, embed_dim=embed_dim
     )
 
-    pos_emb = RoPE2D(rotary_dim=dim)
-    head = nn.Sequential(nn.Linear(dim, 1), nn.Sigmoid())
+    pos_emb = AxialRoPE(rotary_dim=head_dim, n_axes=2)
+    head = nn.Sequential(nn.Linear(embed_dim, 1), nn.Sigmoid())
 
     vit = ViT(
         patch_emb,
@@ -110,7 +112,7 @@ def test_vit_dense_rope2d() -> None:
         head,
         num_layers=2,
         num_heads=num_heads,
-        embed_dim=dim,
+        head_dim=head_dim,
         mlp_hidden_dim=mlp_hidden_dim,
         use_cls=False,
     )
@@ -124,19 +126,21 @@ def test_vit_classifier() -> None:
     # Test params
     batch = 2
     channels = 1
-    dim = 12
     img_size = 224
     mlp_hidden_dim = 5
     num_heads = 3
+    head_dim = 4
     patch_size = 14
+
     max_length = (img_size // patch_size) ** 2
+    embed_dim = num_heads * head_dim
 
     # Create objects
     patch_emb = SimplePatchEmbedding(
-        patch_size=patch_size, channels=channels, embed_dim=dim
+        patch_size=patch_size, channels=channels, embed_dim=embed_dim
     )
-    pos_emb = LearnedPositionEmbeddings(max_len=max_length, embed_dim=dim)
-    head = nn.Sequential(nn.Linear(dim, 1), nn.Sigmoid())
+    pos_emb = LearnedPositionEmbeddings(max_len=max_length, embed_dim=embed_dim)
+    head = nn.Sequential(nn.Linear(embed_dim, 1), nn.Sigmoid())
 
     vit = ViT(
         patch_emb,
@@ -144,7 +148,7 @@ def test_vit_classifier() -> None:
         head,
         num_layers=2,
         num_heads=num_heads,
-        embed_dim=dim,
+        head_dim=head_dim,
         mlp_hidden_dim=mlp_hidden_dim,
         use_cls=True,
     )
@@ -158,19 +162,21 @@ def test_vit_classifier_rope2d() -> None:
     # Test params
     batch = 2
     channels = 1
-    dim = 12
     img_size = 224
     mlp_hidden_dim = 5
     num_heads = 3
+    head_dim = 4
     patch_size = 14
+
+    embed_dim = num_heads * head_dim
 
     # Create objects
     patch_emb = SimplePatchEmbedding(
-        patch_size=patch_size, channels=channels, embed_dim=dim
+        patch_size=patch_size, channels=channels, embed_dim=embed_dim
     )
 
-    pos_emb = RoPE2D(rotary_dim=dim)
-    head = nn.Sequential(nn.Linear(dim, 1), nn.Sigmoid())
+    pos_emb = AxialRoPE(rotary_dim=head_dim, n_axes=2)
+    head = nn.Sequential(nn.Linear(embed_dim, 1), nn.Sigmoid())
 
     vit = ViT(
         patch_emb,
@@ -178,7 +184,7 @@ def test_vit_classifier_rope2d() -> None:
         head,
         num_layers=2,
         num_heads=num_heads,
-        embed_dim=dim,
+        head_dim=head_dim,
         mlp_hidden_dim=mlp_hidden_dim,
         use_cls=True,
     )

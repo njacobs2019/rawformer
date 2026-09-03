@@ -21,13 +21,11 @@ class EncoderBlock(nn.Module):
         mlp_hidden_dim: int,
         dropout: float,
         attn_dropout: float,
-        attn_mask: Tensor | None,
     ) -> None:
         super().__init__()
 
         embed_dim = num_heads * head_dim
         self.num_heads = num_heads
-        self.attn_mask = attn_mask
         self.attn_dropout = attn_dropout
 
         # MHA Layers
@@ -67,21 +65,20 @@ class EncoderBlock(nn.Module):
         K = self.W_k(x)  # (b l dim)
         V = self.W_v(x)  # (b l dim)
 
-        # Optionally rotate
-        if rope_cache is not None:
-            Q = apply_rope(Q, rope_cache)
-            K = apply_rope(K, rope_cache)
-
         # Rearrange
         Q = rearrange(Q, "b l (h d_head) -> b h l d_head", h=self.num_heads)
         K = rearrange(K, "b l (h d_head) -> b h l d_head", h=self.num_heads)
         V = rearrange(V, "b l (h d_head) -> b h l d_head", h=self.num_heads)
 
+        # Optionally rotate
+        if rope_cache is not None:
+            Q = apply_rope(Q, rope_cache)
+            K = apply_rope(K, rope_cache)
+
         attn_out = F.scaled_dot_product_attention(
             query=Q,
             key=K,
             value=V,
-            attn_mask=self.attn_mask,
             dropout_p=self.attn_dropout if self.training else 0.0,
         )
         attn_out = rearrange(attn_out, "b h l d_head -> b l (h d_head)")
@@ -122,64 +119,52 @@ class ViT(nn.Module):
         self,
         patch_embed: nn.Module,
         position: PositionScheme,
-        head: nn.Module | None,
+        mlp_head: nn.Module | None,
         *,
         num_layers: int,
         num_heads: int,
-        embed_dim: int,
+        head_dim: int,
         mlp_hidden_dim: int,
         use_cls: bool,
         qkv_bias: bool = True,
         dropout: float = 0.0,
         attn_dropout: float = 0.0,
-        attn_mask: Tensor | None = None,
     ) -> None:
         """
         Args:
            patch_embed: Parses and embeds img into tokens also returns grid_size
-           position: RoPE2D or LearnedPositionEmbeddings
-           head: Sub-network that operates on transformer output e.g. (b, len, dim)
+           position: RoPE or LearnedPositionEmbeddings
+           mlp_head: Sub-network that operates on transformer output e.g. (b, len, dim)
 
            num_layers: Number of transformer blocks
-           num_heads: Number of attention heads per block. Must divide `embed_dim`.
-           embed_dim: Width of the residual stream and token embeddings. Per-head
-               dimension is `embed_dim // num_heads`.
+           num_heads: Number of attention heads per block
+           head_dim: Embedding dim per head
            mlp_hidden_dim: Hidden dimension of the per-block MLP.
            use_cls: Use class token
            qkv_bias: Whether the Q/K/V projections include a bias term.
            dropout: Probability of dropout during training
            attn_dropout: Probability of dropout during training of attention scores
                Note, used in BERT.
-           attn_mask: Attention mask
         """
 
         super().__init__()
 
-        if attn_mask is not None:
-            msg = "attn_mask not yet supported"
-            raise NotImplementedError(msg)  # TODO: IMPLEMENT and register as buffer
-
-        if embed_dim % num_heads != 0:
-            msg = (
-                f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})"
-            )
-            raise ValueError(msg)
+        embed_dim = num_heads * head_dim
 
         self.patch_embed = patch_embed
         self.pos_embed = position
-        self.head = head
+        self.head = mlp_head
         self.cls_tok = ClassToken(embed_dim=embed_dim) if use_cls else None
 
         self.layers = nn.ModuleList(
             [
                 EncoderBlock(
                     num_heads=num_heads,
-                    head_dim=embed_dim // num_heads,
+                    head_dim=head_dim,
                     qkv_bias=qkv_bias,
                     mlp_hidden_dim=mlp_hidden_dim,
                     dropout=dropout,
                     attn_dropout=attn_dropout,
-                    attn_mask=attn_mask,
                 )
                 for _ in range(num_layers)
             ]
