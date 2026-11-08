@@ -10,8 +10,9 @@ import math
 import torch
 import torch.nn.functional as F
 from einops import rearrange
-from jaxtyping import Float
 from torch import Tensor, nn
+
+from ..types import Float
 
 
 def scaled_dot_product_attn(

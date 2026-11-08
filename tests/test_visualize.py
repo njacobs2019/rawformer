@@ -29,7 +29,7 @@ def test_visualization() -> None:
     flat_axes = axes.ravel()
 
     for ax, theta in zip(flat_axes, thetas, strict=False):
-        rope = AxialRoPE(rotary_dim=dim, n_axes=2, init_theta=theta)
+        rope = AxialRoPE(rotary_dim=dim, n_axes=2, init_theta=float(theta))
         cache = rope.build_cache((h, w), dtype=torch.float32)
 
         pre_rot = torch.ones(batch, num_heads, seq_len, d_head)

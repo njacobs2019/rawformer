@@ -6,10 +6,9 @@ from collections.abc import Sequence
 from typing import Protocol, cast, runtime_checkable
 
 import torch
-from jaxtyping import Float
 from torch import Tensor, nn
 
-from .types import RoPECache, Tokens
+from .types import Float, RoPECache, Tokens
 
 
 @runtime_checkable

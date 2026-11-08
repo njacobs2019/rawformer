@@ -13,7 +13,7 @@ pip install rawformer
 
 Two env vars control runtime checking:
 
-- `BEARTYPE=1` — enable runtime type checking (default off)
+- `BEARTYPE=1` — enable runtime type checking (default off, needs `pip install rawformer[typecheck]`)
 - `PYTHONOPTIMIZE=1` — strip `assert` statements (default on)
 
 Most errors will be caught by `ValueError`, it is pretty safe to strip asserts.

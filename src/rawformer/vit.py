@@ -5,11 +5,10 @@ ViT implementation (not true to ViT paper)
 import torch
 import torch.nn.functional as F
 from einops import rearrange
-from jaxtyping import Float
 from torch import Tensor, nn
 
 from .position_encoding import PositionScheme, apply_rope
-from .types import RoPECache, Tokens
+from .types import Float, RoPECache, Tokens
 
 
 class EncoderBlock(nn.Module):

@@ -1750,12 +1750,10 @@ wheels = [
 
 [[package]]
 name = "rawformer"
-version = "0.4.1"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
-    { name = "beartype" },
     { name = "einops" },
-    { name = "jaxtyping" },
     { name = "torch", version = "2.14.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-9-rawformer-cpu') or (extra == 'extra-9-rawformer-cpu' and extra == 'extra-9-rawformer-cuda')" },
     { name = "torch", version = "2.14.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra != 'extra-9-rawformer-cpu' and extra != 'extra-9-rawformer-cuda') or (extra == 'extra-9-rawformer-cpu' and extra == 'extra-9-rawformer-cuda')" },
     { name = "torch", version = "2.14.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-9-rawformer-cpu') or (extra == 'extra-9-rawformer-cpu' and extra == 'extra-9-rawformer-cuda')" },
@@ -1770,10 +1768,16 @@ cpu = [
 cuda = [
     { name = "torch", version = "2.14.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
 ]
+typecheck = [
+    { name = "beartype" },
+    { name = "jaxtyping" },
+]
 
 [package.dev-dependencies]
 dev = [
+    { name = "beartype" },
     { name = "ipykernel" },
+    { name = "jaxtyping" },
     { name = "matplotlib" },
     { name = "mypy" },
     { name = "nbstripout" },
@@ -1785,18 +1789,20 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "beartype", specifier = ">=0.22.9" },
+    { name = "beartype", marker = "extra == 'typecheck'", specifier = ">=0.22.9" },
     { name = "einops", specifier = ">=0.8.2" },
-    { name = "jaxtyping", specifier = ">=0.3.9" },
+    { name = "jaxtyping", marker = "extra == 'typecheck'", specifier = ">=0.3.9" },
     { name = "torch", specifier = ">=2.9,<3" },
     { name = "torch", marker = "extra == 'cpu'", specifier = ">=2.9,<3", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "rawformer", extra = "cpu" } },
     { name = "torch", marker = "extra == 'cuda'", specifier = ">=2.9,<3", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "rawformer", extra = "cuda" } },
 ]
-provides-extras = ["cpu", "cuda"]
+provides-extras = ["typecheck", "cpu", "cuda"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "beartype", specifier = ">=0.22.9" },
     { name = "ipykernel", specifier = ">=7.3.0" },
+    { name = "jaxtyping", specifier = ">=0.3.9" },
     { name = "matplotlib", specifier = ">=3.11.1" },
     { name = "mypy", specifier = ">=1.19.1" },
     { name = "nbstripout", specifier = ">=0.9.1" },

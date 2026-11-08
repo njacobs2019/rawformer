@@ -4,8 +4,9 @@ Handles tokenization and embedding
 
 import torch.nn.functional as F
 from einops import rearrange
-from jaxtyping import Float
 from torch import Tensor, nn
+
+from .types import Float
 
 
 class SimplePatchEmbedding(nn.Module):

@@ -1,6 +1,6 @@
 [project]
 name = "rawformer"
-version = "0.4.1"
+version = "0.5.0"
 description = "Transformers from scratch"
 readme = "README.md"
 
@@ -11,15 +11,15 @@ authors = [
 requires-python = ">=3.12"
 
 dependencies = [
-    "beartype>=0.22.9",
     "einops>=0.8.2",
-    "jaxtyping>=0.3.9",
     "torch>=2.9,<3",
 ]
 
 [dependency-groups]
 dev = [
+    "beartype>=0.22.9",
     "ipykernel>=7.3.0",
+    "jaxtyping>=0.3.9",
     "matplotlib>=3.11.1",
     "mypy>=1.19.1",
     "nbstripout>=0.9.1",
@@ -30,6 +30,7 @@ dev = [
 ]
 
 [project.optional-dependencies]
+typecheck = ["beartype>=0.22.9", "jaxtyping>=0.3.9"]
 cpu = ["torch>=2.9,<3"]
 cuda = ["torch>=2.9,<3"]
 
@@ -56,7 +57,7 @@ url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [build-system]
-requires = ["uv_build>=0.11.0,<0.13.0"]
+requires = ["uv_build>=0.11.0,<0.14"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
